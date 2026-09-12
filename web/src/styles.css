@@ -144,3 +144,18 @@ label.check input { width: auto; margin: 0; }
 textarea { width: 100%; }
 select.sm { width: auto; margin-top: 0; padding: 4px 8px; font-size: 12px;
             font-family: ui-monospace, Menlo, monospace; }
+
+/* ── identity (sandbox tab) ─────────────────────────── */
+.qrbox { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; margin-top: 16px; }
+.qr { image-rendering: pixelated; border-radius: 6px; flex: none; background: #fff; }
+.qrbox > div { flex: 1 1 260px; font-size: 13px; }
+.brk { word-break: break-all; font-size: 11px; }
+.verdict { margin: 14px 0 0; padding: 10px 12px; border-radius: 7px; font-size: 13px; font-weight: 600; }
+.verdict.ok { color: #3fb950; background: rgba(63,185,80,0.08); border: 1px solid rgba(63,185,80,0.3); }
+.verdict.no { color: #ff9b95; background: rgba(248,81,73,0.08); border: 1px solid rgba(248,81,73,0.3); }
+fieldset[disabled] { opacity: 0.55; }
+
+/* ── marketplace ────────────────────────────────────── */
+.listing { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+.listing .stats { margin-top: 0; }
+.listing .row { margin-top: 10px; }

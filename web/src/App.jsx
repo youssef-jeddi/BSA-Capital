@@ -4,6 +4,8 @@ import { startPairing, restoreSession, disconnect, accountOf, allSessions, getCl
 import CreateVault from './components/CreateVault.jsx'
 import Depositor from './components/Depositor.jsx'
 import Borrower from './components/Borrower.jsx'
+import Identity from './components/Identity.jsx'
+import Marketplace from './components/Marketplace.jsx'
 
 const WSS = 'wss://s.devnet.rippletest.net:51233/'
 const EXPLORER = 'https://devnet.xrpl.org'
@@ -12,6 +14,8 @@ const TABS = [
   { id: 'broker', label: 'Broker', ready: true },
   { id: 'depositor', label: 'Depositor', ready: true },
   { id: 'borrower', label: 'Borrower', ready: true },
+  { id: 'identity', label: 'Identity', ready: true },
+  { id: 'market', label: 'Marketplace', ready: true },
 ]
 
 const savedProjectId = () =>
@@ -143,6 +147,8 @@ export default function App() {
           {tab === 'broker' && <CreateVault key={address} session={session} address={address} />}
           {tab === 'depositor' && <Depositor key={address} session={session} address={address} />}
           {tab === 'borrower' && <Borrower key={address} session={session} address={address} />}
+          {tab === 'identity' && <Identity key={address} session={session} address={address} />}
+          {tab === 'market' && <Marketplace key={address} session={session} address={address} />}
         </>
       )}
 

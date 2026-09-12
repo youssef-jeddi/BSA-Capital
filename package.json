@@ -6,6 +6,7 @@
     "probe": "node scripts/00-probe-sdk.mjs"
   },
   "dependencies": {
+    "qrcode": "^1.5.4",
     "xrpl": "5.2.0-beta.1"
   }
 }
