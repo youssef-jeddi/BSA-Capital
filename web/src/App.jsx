@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Client } from 'xrpl'
-import { startPairing, restoreSession, disconnect, accountOf, getClient, CHAIN } from './wallet.js'
+import { startPairing, restoreSession, disconnect, accountOf, allSessions, getClient, CHAIN } from './wallet.js'
 import CreateVault from './components/CreateVault.jsx'
 import Depositor from './components/Depositor.jsx'
 import Borrower from './components/Borrower.jsx'
@@ -20,6 +20,8 @@ const savedProjectId = () =>
 export default function App() {
   const [projectId, setProjectId] = useState(savedProjectId)
   const [session, setSession] = useState(null)
+  const [sessions, setSessions] = useState([])
+  const [pairing, setPairing] = useState(false)
   const [uri, setUri] = useState('')
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
@@ -31,7 +33,7 @@ export default function App() {
   useEffect(() => {
     if (!projectId) return
     getClient(projectId)
-      .then(() => { const s = restoreSession(); if (s) setSession(s) })
+      .then(() => { setSessions(allSessions()); const s = restoreSession(); if (s) setSession(s) })
       .catch((e) => setStatus(`Init failed: ${e.message}`))
   }, [projectId])
 
@@ -57,14 +59,17 @@ export default function App() {
       const { uri, approval } = await startPairing(projectId)
       setUri(uri)
       setStatus('Paste the URI into the wallet extension, then Approve.')
-      setSession(await approval()); setUri(''); setStatus('')
+      const s = await approval()
+      setSessions(allSessions()); setSession(s); setUri(''); setStatus(''); setPairing(false)
     } catch (e) { setStatus(`Connect failed: ${e.message}`) }
     finally { setBusy(false) }
   }
 
   async function drop() {
     try { await disconnect(session) } catch { /* already gone */ }
-    setSession(null); setBalance(null); setStatus('Disconnected.')
+    const rest = allSessions()
+    setSessions(rest); setSession(rest[rest.length - 1] ?? null)
+    setBalance(null); setStatus('Disconnected.')
   }
 
   return (
@@ -76,11 +81,21 @@ export default function App() {
         </div>
         {session && (
           <div className="who">
-            <a href={`${EXPLORER}/accounts/${address}`} target="_blank" rel="noreferrer">
-              {address.slice(0, 8)}…{address.slice(-6)}
-            </a>
+            {sessions.length > 1 ? (
+              <select className="sm" value={session.topic}
+                      onChange={(e) => setSession(sessions.find((x) => x.topic === e.target.value))}>
+                {sessions.map((s) => (
+                  <option key={s.topic} value={s.topic}>{accountOf(s)}</option>
+                ))}
+              </select>
+            ) : (
+              <a href={`${EXPLORER}/accounts/${address}`} target="_blank" rel="noreferrer">
+                {address.slice(0, 8)}…{address.slice(-6)}
+              </a>
+            )}
             <span>{balance === null ? '…' : `${balance} XRP`}</span>
             <button className="ghost sm" onClick={() => setBump((n) => n + 1)}>Refresh</button>
+            <button className="ghost sm" onClick={() => { setPairing(true); connect() }}>+ Wallet</button>
             <button className="ghost sm" onClick={drop}>Disconnect</button>
           </div>
         )}
@@ -107,6 +122,16 @@ export default function App() {
         </section>
       ) : (
         <>
+          {pairing && uri && (
+            <div className="card uri">
+              <p>Switch the extension to the <b>other account</b> first, then paste this and Approve:</p>
+              <textarea readOnly value={uri} rows={4} onFocus={(e) => e.target.select()} />
+              <div className="row">
+                <button className="ghost" onClick={() => navigator.clipboard.writeText(uri)}>Copy URI</button>
+                <button className="ghost" onClick={() => { setPairing(false); setUri('') }}>Cancel</button>
+              </div>
+            </div>
+          )}
           <nav className="tabs">
             {TABS.map((t) => (
               <button key={t.id} disabled={!t.ready} className={tab === t.id ? 'tab on' : 'tab'}
@@ -115,9 +140,9 @@ export default function App() {
               </button>
             ))}
           </nav>
-          {tab === 'broker' && <CreateVault session={session} address={address} />}
-          {tab === 'depositor' && <Depositor session={session} address={address} />}
-          {tab === 'borrower' && <Borrower session={session} address={address} />}
+          {tab === 'broker' && <CreateVault key={address} session={session} address={address} />}
+          {tab === 'depositor' && <Depositor key={address} session={session} address={address} />}
+          {tab === 'borrower' && <Borrower key={address} session={session} address={address} />}
         </>
       )}
 

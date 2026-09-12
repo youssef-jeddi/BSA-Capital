@@ -60,6 +60,10 @@ export default function CreateVault({ session, address }) {
 
       const brokerRes = await run('LoanBrokerSet', buildLoanBrokerSet(f, address, vault.id))
       const broker = createdEntry(brokerRes, 'LoanBroker')
+      if (broker) {
+        push({ label: 'Broker registered', state: 'info',
+               detail: `LoanBrokerID ${broker.id}\nPaste this into the Borrower tab to request a loan.` })
+      }
 
       if (f.firstLoss && Number(f.firstLoss) > 0 && broker) {
         await run('LoanBrokerCoverDeposit', buildCoverDeposit(f, address, broker.id))

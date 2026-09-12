@@ -1,5 +1,5 @@
 /** Read-side helpers. One shared client; the wallet handles all writes. */
-import { Client, rippleTimeToUnixTime, dropsToXrp, xrpToDrops } from 'xrpl'
+import { Client, rippleTimeToUnixTime, dropsToXrp, xrpToDrops, encode } from 'xrpl'
 
 const WSS = 'wss://s.devnet.rippletest.net:51233/'
 let client
@@ -121,3 +121,13 @@ export async function fetchBroker(brokerId) {
 
 /** Rates are stored as integers: 100000 = 100%. */
 export const rateToPct = (r) => (r == null ? null : r / 1000)
+
+/**
+ * Submit an already fully-signed transaction. Needed for the two-party LoanSet:
+ * with signature_target set the wallet signs but does not submit.
+ */
+export async function submitSigned(tx_json) {
+  const c = await ledger()
+  const r = await c.submitAndWait(encode(tx_json))
+  return r.result
+}

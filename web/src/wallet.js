@@ -41,9 +41,12 @@ export async function startPairing(projectId) {
   })
 }
 
+export function allSessions() {
+  return client ? client.session.getAll() : []
+}
+
 export function restoreSession() {
-  if (!client) return null
-  const all = client.session.getAll()
+  const all = allSessions()
   return all.length ? all[all.length - 1] : null
 }
 
@@ -61,6 +64,18 @@ export async function disconnect(session) {
  * { tx_json (full validated result), tx_blob, hash }.
  * With submit:false it signs only and returns { tx_json }.
  */
+export async function signAsCounterparty(session, tx_json) {
+  const c = await getClient()
+  return c.request({
+    topic: session.topic,
+    chainId: CHAIN,
+    request: {
+      method: 'xrpl_signTransactionFor',
+      params: { tx_json, signature_target: 'Counterparty' },
+    },
+  })
+}
+
 export async function signTransaction(session, tx_json, { submit = true } = {}) {
   const c = await getClient()
   return c.request({

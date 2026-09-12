@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { signTransaction } from '../wallet.js'
+import { signTransaction, signAsCounterparty } from '../wallet.js'
 import Steps from './Steps.jsx'
 import {
   assetToDisplay, countdown, fetchBroker, fetchLoans, isXrpVault,
-  ledgerNowMs, loanState, phaseOf, rateToPct,
+  ledgerNowMs, loanState, phaseOf, rateToPct, submitSigned,
 } from '../lib/ledger.js'
 import { xrpToDrops, rippleTimeToUnixTime } from 'xrpl'
 
@@ -17,7 +17,7 @@ export default function Borrower({ session, address }) {
   const [loans, setLoans] = useState([])
   const [brokerId, setBrokerId] = useState('')
   const [ctx, setCtx] = useState(null)          // { broker, vault, issuance }
-  const [terms, setTerms] = useState({ principal: '20', rate: '5', interval: '60', payments: '3', grace: '30' })
+  const [terms, setTerms] = useState({ principal: '20', rate: '5', interval: '120', payments: '3', grace: '60' })
   const [handoff, setHandoff] = useState('')    // blob produced by the borrower
   const [incoming, setIncoming] = useState('')  // blob pasted by the broker
   const [steps, setSteps] = useState([])
@@ -36,6 +36,15 @@ export default function Borrower({ session, address }) {
   }, [brokerId])
 
   const set = (k) => (e) => setTerms((p) => ({ ...p, [k]: e.target.value }))
+
+  const selfDealing = ctx && ctx.broker.Owner === address
+  // rippled enforces a 60s floor on GracePeriod; xrpl.js only checks grace <= interval,
+  // so an out-of-range value reaches the ledger as an opaque temINVALID.
+  const termErrors = [
+    Number(terms.grace) < 60 && 'Grace period must be at least 60s (ledger returns temINVALID below that).',
+    Number(terms.grace) > Number(terms.interval) && 'Grace period must not exceed the payment interval.',
+    Number(terms.interval) < 60 && 'Payment interval must be at least 60s.',
+  ].filter(Boolean)
 
   function buildLoanSet() {
     return {
@@ -65,18 +74,35 @@ export default function Borrower({ session, address }) {
     } finally { setBusy(false) }
   }
 
-  /** Leg 2 — broker counter-signs and submits. Currently blocked, see note in the UI. */
+  /**
+   * Leg 2 — counterparty signs with signature_target so the wallet uses the CPT
+   * hash prefix, then WE submit: with signature_target set the wallet signs only.
+   */
   async function coSign() {
-    setBusy(true); setSteps([{ label: 'LoanSet — counter-sign & submit', state: 'pending' }])
+    setBusy(true)
+    setSteps([{ label: 'LoanSet — counterparty signature', state: 'pending' }])
     try {
       const tx = JSON.parse(incoming)
-      const res = await signTransaction(session, tx, { submit: true })
-      const code = res?.tx_json?.meta?.TransactionResult
-      setSteps([{ label: 'LoanSet', state: code === 'tesSUCCESS' ? 'ok' : 'fail', code, hash: res.hash }])
+      if (tx.Account === address) {
+        throw new Error('This session is the originator. Switch to the counterparty account in the header.')
+      }
+      const res = await signAsCounterparty(session, tx)
+      setSteps([{ label: 'Counterparty signature attached', state: 'ok' },
+                { label: 'Submitting', state: 'pending' }])
+      const result = await submitSigned(res.tx_json)
+      const code = result.meta?.TransactionResult
+      const loan = result.meta?.AffectedNodes?.map((n) => n.CreatedNode).find((n) => n?.LedgerEntryType === 'Loan')
+      setSteps([
+        { label: 'Counterparty signature attached', state: 'ok' },
+        { label: 'LoanSet', state: code === 'tesSUCCESS' ? 'ok' : 'fail', code, hash: result.hash,
+          detail: loan ? `LoanID ${loan.LedgerIndex}` : undefined },
+      ])
       load()
     } catch (e) {
-      const code = /\b(te[cflms][A-Z_]+)/.exec(e.message)?.[1]
-      setSteps([{ label: 'LoanSet', state: 'fail', code, error: e.message }])
+      const msg = e?.data?.error_exception ?? e.message
+      const code = /\b(te[cflms][A-Z_]+)/.exec(msg)?.[1]
+      setSteps((p) => [...p.filter((x) => x.state !== 'pending'),
+                       { label: 'LoanSet', state: 'fail', code, error: msg }])
     } finally { setBusy(false) }
   }
 
@@ -123,6 +149,13 @@ export default function Borrower({ session, address }) {
               <div><span>Debt outstanding</span><b>{assetToDisplay(ctx.vault, ctx.broker.DebtTotal ?? '0')}</b></div>
               <div><span>Cover posted</span><b>{assetToDisplay(ctx.vault, ctx.broker.CoverAvailable ?? '0')}</b></div>
             </div>
+            {selfDealing && (
+              <p className="warnline">
+                This session ({address.slice(0, 10)}…) owns the broker, so Account and Counterparty
+                would be the same account. The ledger rejects that with <code>temBAD_SIGNER</code>.
+                Switch the header dropdown to a different account.
+              </p>
+            )}
             {vaultPhase.phase !== 'Investment' && (
               <p className="warnline">
                 Vault is in {vaultPhase.phase}. Loan origination is only permitted during Investment —
@@ -137,14 +170,16 @@ export default function Borrower({ session, address }) {
           <label>Interest rate (%)<input type="number" step="0.001" value={terms.rate} onChange={set('rate')} /></label>
           <label>Payment interval (s)<input type="number" min="1" value={terms.interval} onChange={set('interval')} /></label>
           <label>Number of payments<input type="number" min="1" value={terms.payments} onChange={set('payments')} /></label>
-          <label>Grace period (s)<input type="number" min="0" value={terms.grace} onChange={set('grace')} /></label>
+          <label>Grace period (s)<input type="number" min="60" value={terms.grace} onChange={set('grace')} /></label>
         </div>
         <p className="dim">
           The final payment must fall before the vault's RedemptionDate — the protocol enforces
           asset/liability matching and rejects a loan that would mature too late.
         </p>
 
-        <button className="primary" disabled={busy || !ctx} onClick={signRequest}>
+        {termErrors.length > 0 && <ul className="errors">{termErrors.map((e) => <li key={e}>{e}</li>)}</ul>}
+
+        <button className="primary" disabled={busy || !ctx || selfDealing || termErrors.length > 0} onClick={signRequest}>
           Sign request (no submit)
         </button>
 
@@ -164,10 +199,10 @@ export default function Borrower({ session, address }) {
         <button className="primary" disabled={busy || !incoming} onClick={coSign}>
           Counter-sign &amp; submit
         </button>
-        <p className="warnline">
-          Known blocker: rippled currently rejects every counterparty signature we can produce with
-          <code> fails local checks: Counterparty: Invalid signature</code>. Seven signing variants tested,
-          including both SDK helpers. Everything else on this screen works; this last hop does not.
+        <p className="dim">
+          Signed via <code>signature_target: "Counterparty"</code>, which makes the wallet use the
+          CPT hash prefix (<code>0x43505400</code>) rather than the standard STX one. The wallet signs
+          but does not submit in this mode, so the app submits the completed transaction itself.
         </p>
       </fieldset>
 

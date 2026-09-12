@@ -142,3 +142,5 @@ label.check input { width: auto; margin: 0; }
 .st-impaired { color: #e3b341; border-color: rgba(227,179,65,0.4); }
 .st-defaulted { color: #f85149; border-color: rgba(248,81,73,0.4); }
 textarea { width: 100%; }
+select.sm { width: auto; margin-top: 0; padding: 4px 8px; font-size: 12px;
+            font-family: ui-monospace, Menlo, monospace; }
