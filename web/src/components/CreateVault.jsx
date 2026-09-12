@@ -111,7 +111,7 @@ export default function CreateVault({ session, address, company }) {
       }).catch((e) => push({ label: 'Index warning', state: 'info',
                              detail: `Vault created on-ledger but not listed: ${e.message}` }))
       push({ label: 'Vault created', state: 'info',
-             detail: `VaultID ${vault.id}\nShare MPT ${vault.fields?.ShareMPTID ?? '—'}\nSaved — now selectable in the Depositor tab.` })
+             detail: `VaultID ${vault.id}\nShare MPT ${vault.fields?.ShareMPTID ?? '—'}\nNow listed for investors in Invest.` })
 
       const brokerRes = await run('LoanBrokerSet', buildLoanBrokerSet(f, address, vault.id))
       const broker = createdEntry(brokerRes, 'LoanBroker')
@@ -121,7 +121,7 @@ export default function CreateVault({ session, address, company }) {
           name: f.vaultName || `Fund ${vault.id.slice(0, 6)}`,
         }).catch(() => {})
         push({ label: 'Broker registered', state: 'info',
-               detail: `LoanBrokerID ${broker.id}\nPaste this into the Borrower tab to request a loan.` })
+               detail: `LoanBrokerID ${broker.id}\nBorrowers can now request a loan from this fund.` })
       }
 
       if (f.firstLoss && Number(f.firstLoss) > 0 && broker) {

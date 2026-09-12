@@ -35,12 +35,44 @@ export function insert(row) {
   return findById(row.id)
 }
 
-export function markSold(id, { buyer_address, payment_hash, delivery_hash }) {
-  getDb().prepare(`
-    UPDATE listings SET status = 'sold', buyer_address = ?, payment_hash = ?,
-           delivery_hash = ?, settled_at = ? WHERE id = ?
-  `).run(buyer_address, payment_hash, delivery_hash, nowIso(), id)
+export const paymentUsed = (hash) =>
+  getDb().prepare('SELECT id FROM listings WHERE payment_hash = ?').get(hash) ?? null
+
+/**
+ * Claim a listing for settlement before any value moves.
+ *
+ * Settling is read-check-network-write, and the network leg takes seconds, so two
+ * concurrent settles would both pass an `open` check and custody would pay out
+ * twice. This flips the row to `settling` in one conditional UPDATE and reports
+ * whether this caller won; the payment hash is recorded at the same time, so the
+ * unique index rejects a replay atomically rather than after delivery.
+ */
+export function claimForSettlement(id, paymentHash) {
+  const info = getDb().prepare(`
+    UPDATE listings SET status = 'settling', payment_hash = ?
+     WHERE id = ? AND status = 'open'
+  `).run(paymentHash, id)
+  return info.changes === 1
+}
+
+export function releaseClaim(id) {
+  getDb().prepare("UPDATE listings SET status = 'open', payment_hash = NULL WHERE id = ? AND status = 'settling'")
+    .run(id)
   return findById(id)
+}
+
+export function markSold(id, { buyer_address, delivery_hash }) {
+  getDb().prepare(`
+    UPDATE listings SET status = 'sold', buyer_address = ?, delivery_hash = ?, settled_at = ?
+     WHERE id = ?
+  `).run(buyer_address, delivery_hash, nowIso(), id)
+  return findById(id)
+}
+
+/** Same one-shot claim for cancellation, so a double-cancel cannot pay out twice. */
+export function claimForCancel(id) {
+  return getDb().prepare("UPDATE listings SET status = 'cancelling' WHERE id = ? AND status = 'open'")
+    .run(id).changes === 1
 }
 
 export function markCancelled(id, returnHash) {

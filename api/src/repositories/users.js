@@ -30,10 +30,3 @@ export function update(address, fields) {
   `).run({ ...fields, address, at: nowIso() })
   return findByAddress(address)
 }
-
-/** Seam for the credentials flow. */
-export function setStatus(address, status) {
-  getDb().prepare('UPDATE users SET status = ?, updated_at = ? WHERE address = ?')
-    .run(status, nowIso(), address)
-  return findByAddress(address)
-}

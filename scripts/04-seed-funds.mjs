@@ -11,6 +11,7 @@
 import * as xrpl from 'xrpl'
 import fs from 'node:fs'
 import path from 'node:path'
+import { proveControl } from './lib/auth.mjs'
 
 const WSS = 'wss://s.devnet.rippletest.net:51233/'
 const EXPLORER = 'https://devnet.xrpl.org/transactions/'
@@ -106,12 +107,16 @@ async function createFund(issuer, fund, dates) {
   }
 }
 
-/** Best effort: the funds exist on-ledger whether or not the API is up. */
-async function publish(pathname, body) {
+/**
+ * Best effort: the funds exist on-ledger whether or not the API is up.
+ * Routes that write on someone's behalf need a signed proof of key control.
+ */
+async function publish(pathname, body, wallet) {
+  const proof = wallet ? await proveControl(API, wallet) : undefined
   const res = await fetch(`${API}${pathname}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(proof ? { ...body, proof } : body),
   })
   if (!res.ok && res.status !== 409) {
     const detail = await res.json().catch(() => ({}))
@@ -138,7 +143,7 @@ async function main() {
 
   let apiUp = true
   try {
-    await publish('/api/companies', { address: issuer.address, ...COMPANY })
+    await publish('/api/companies', { address: issuer.address, ...COMPANY }, issuer)
   } catch (e) {
     apiUp = false
     log(`API not reachable at ${API} (${e.message}). Funds will be created on-ledger but not listed.\n`)
@@ -162,7 +167,7 @@ async function main() {
           redemption_date: dates.redemption,
           is_private: false,
           tx_hash: out.txHash,
-        }).catch((e) => log(`(not listed: ${e.message}) `))
+        }, issuer).catch((e) => log(`(not listed: ${e.message}) `))
       }
       results.push({ fund, ...out })
       log(`ok  ${EXPLORER}${out.txHash}`)

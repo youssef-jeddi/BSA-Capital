@@ -16,8 +16,9 @@ export default function CompanyForm({ address, existing, onDone }) {
     <form className="card" onSubmit={submit}>
       <h2>{existing ? 'Company details' : 'Register your company'}</h2>
       <p className="lede">
-        Registered companies can launch funds. Your XRPL account is the identity:
-        the profile is attached to <code>{address}</code>.
+        Registered companies can launch funds. Your XRPL account is the identity, so the profile is
+        attached to <code>{address}</code>. The first save asks your wallet to sign in once — it costs
+        nothing and never reaches the ledger.
       </p>
 
       <Field label="Company name" required>

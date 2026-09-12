@@ -38,10 +38,10 @@ export function insert(superVault, allocations) {
     db.prepare(`
       INSERT INTO super_vaults (vault_id, curator_address, deployment_address, loan_broker_id,
                                 name, strategy, subscription_date, redemption_date, loan_maturity,
-                                status, created_at)
+                                interest_rate, status, created_at)
       VALUES (@vault_id, @curator_address, @deployment_address, @loan_broker_id,
               @name, @strategy, @subscription_date, @redemption_date, @loan_maturity,
-              'raising', @created_at)
+              @interest_rate, 'raising', @created_at)
     `).run({ ...superVault, created_at: nowIso() })
 
     const stmt = db.prepare(`

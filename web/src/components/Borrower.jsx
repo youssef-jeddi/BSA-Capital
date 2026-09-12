@@ -13,6 +13,7 @@ import {
   ledgerNowMs, loanState, phaseOf, rateToPct, submitSigned,
 } from '../lib/ledger.js'
 import { xrpToDrops, rippleTimeToUnixTime } from 'xrpl'
+import { clearPendingLoan, pendingFor, savePendingLoan } from '../lib/pendingLoans.js'
 
 /**
  * A LoanSet needs signatures from BOTH parties, but a WalletConnect session is
@@ -25,8 +26,10 @@ export default function Borrower({ session, address }) {
   const [brokerId, setBrokerId] = useState('')
   const [ctx, setCtx] = useState(null)          // { broker, vault, issuance }
   const [terms, setTerms] = useState({ principal: '20', rate: '5', interval: '120', payments: '3', grace: '60' })
-  const [handoff, setHandoff] = useState('')    // blob produced by the borrower
-  const [incoming, setIncoming] = useState('')  // blob pasted by the broker
+  // Loans this account is being asked to counter-sign. Held in the browser rather
+  // than pasted between tabs, and surviving the remount an account switch causes.
+  const [awaiting, setAwaiting] = useState(() => pendingFor(address))
+  const refreshAwaiting = () => setAwaiting(pendingFor(address))
   const [steps, setSteps] = useState([])
   const [busy, setBusy] = useState(false)
   const nowMs = useClock()
@@ -83,10 +86,10 @@ export default function Borrower({ session, address }) {
     setBusy(true); setSteps([{ label: 'LoanSet — borrower signature', state: 'pending' }])
     try {
       const res = await signTransaction(session, buildLoanSet(), { submit: false })
-      const blob = JSON.stringify(res.tx_json)
-      setHandoff(blob)
-      setSteps([{ label: 'Signed, not submitted', state: 'ok',
-                  detail: 'Send the blob below to the broker to counter-sign.' }])
+      savePendingLoan(`loan:${brokerId}:${Date.now()}`, res.tx_json)
+      refreshAwaiting()
+      setSteps([{ label: 'Signed, waiting for the lender', state: 'ok',
+                  detail: `Held for ${ctx.broker.Owner}. Switch to that account and it appears below.` }])
     } catch (e) {
       setSteps([{ label: 'LoanSet — borrower signature', state: 'fail', error: e.message }])
     } finally { setBusy(false) }
@@ -100,7 +103,7 @@ export default function Borrower({ session, address }) {
     setBusy(true)
     setSteps([{ label: 'LoanSet — counterparty signature', state: 'pending' }])
     try {
-      const tx = JSON.parse(incoming)
+      const tx = held.txJson
       if (tx.Account === address) {
         throw new Error('This session is the originator. Switch to the counterparty account in the header.')
       }
@@ -215,28 +218,36 @@ export default function Borrower({ session, address }) {
           Sign request (no submit)
         </button>
 
-        {handoff && (
-          <div className="uri">
-            <p>Signed by the borrower. Hand this to the broker to counter-sign:</p>
-            <textarea readOnly value={handoff} rows={4} onFocus={(e) => e.target.select()} />
-            <button className="ghost" onClick={() => navigator.clipboard.writeText(handoff)}>Copy</button>
-          </div>
-        )}
       </fieldset>
 
-      <fieldset>
-        <legend>Counter-sign a request <span className="dim">(broker side)</span></legend>
-        <textarea value={incoming} onChange={(e) => setIncoming(e.target.value)} rows={3}
-                  placeholder="Paste the borrower-signed LoanSet JSON" spellCheck={false} />
-        <button className="primary" disabled={busy || !incoming} onClick={coSign}>
-          Counter-sign &amp; submit
-        </button>
-        <p className="dim">
-          Signed via <code>signature_target: "Counterparty"</code>, which makes the wallet use the
-          CPT hash prefix (<code>0x43505400</code>) rather than the standard STX one. The wallet signs
-          but does not submit in this mode, so the app submits the completed transaction itself.
-        </p>
-      </fieldset>
+      {awaiting.length > 0 && (
+        <fieldset>
+          <legend>Waiting for your signature</legend>
+          <p className="dim">
+            A borrower has signed these terms and needs you, as the lender, to counter-sign. Nothing
+            reaches the ledger until you do.
+          </p>
+          {awaiting.map((held) => (
+            <div key={held.key} className="handoff">
+              <div className="handoff-head">
+                <b>{Number(held.txJson.PrincipalRequested) / 1e6} XRP requested</b>
+                <small>
+                  from {held.txJson.Account?.slice(0, 12)}… · signed {new Date(held.savedAt).toLocaleTimeString()}
+                </small>
+              </div>
+              <div className="row">
+                <button className="primary" disabled={busy} onClick={() => coSign(held)}>
+                  Counter-sign &amp; submit
+                </button>
+                <button className="ghost" disabled={busy}
+                        onClick={() => { clearPendingLoan(held.key); refreshAwaiting() }}>
+                  Decline
+                </button>
+              </div>
+            </div>
+          ))}
+        </fieldset>
+      )}
 
       <Steps steps={steps} />
     </div>

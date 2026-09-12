@@ -22,6 +22,7 @@ export default function UserForm({ address, existing, onDone }) {
       <h2>{existing ? 'Investor details' : 'Register as an investor'}</h2>
       <p className="lede">
         Investors subscribe to funds and hold vault shares. Attached to <code>{address}</code>.
+        The first save asks your wallet to sign in once — free, and it never reaches the ledger.
       </p>
 
       <Field label="Name" required>

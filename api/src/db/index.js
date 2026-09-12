@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
 import { mkdirSync, readFileSync } from 'node:fs'
+import { migrate as applyMigrations } from './migrations.js'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -22,7 +23,10 @@ export function getDb() {
 }
 
 function migrate(connection) {
+  // schema.sql creates anything missing; migrations.js evolves anything that
+  // already exists. Both are idempotent, so boot order does not matter.
   connection.exec(readFileSync(join(here, 'schema.sql'), 'utf8'))
+  applyMigrations(connection)
 }
 
 export const nowIso = () => new Date().toISOString()

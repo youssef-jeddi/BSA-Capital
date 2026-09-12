@@ -1,5 +1,6 @@
 /** Read-side helpers. One shared client; the wallet handles all writes. */
 import { Client, rippleTimeToUnixTime, dropsToXrp, xrpToDrops, encode } from 'xrpl'
+import { cached, invalidate } from './ledgerCache.js'
 
 const WSS = 'wss://s.devnet.rippletest.net:51233/'
 let client
@@ -14,11 +15,11 @@ export async function ledger() {
  * Phase must be derived from ledger close time, not Date.now(). The ledger is
  * the authority on when a phase flips; wall clock disagrees at the boundary.
  */
-export async function ledgerNowMs() {
+export const ledgerNowMs = () => cached('now', async () => {
   const c = await ledger()
   const r = await c.request({ command: 'ledger', ledger_index: 'validated' })
   return rippleTimeToUnixTime(r.result.ledger.close_time)
-}
+})
 
 export const PHASES = ['Subscription', 'Investment', 'Redemption']
 
@@ -37,14 +38,14 @@ export function phaseOf(vault, nowMs) {
   return { phase: 'Redemption', endsAt: null }
 }
 
-export async function fetchVault(vaultId) {
+export const fetchVault = (vaultId) => cached(`vault:${vaultId}`, async () => {
   const c = await ledger()
   const vault = (await c.request({ command: 'ledger_entry', index: vaultId })).result.node
   const issuance = (await c.request({ command: 'ledger_entry', mpt_issuance: vault.ShareMPTID })).result.node
   return { vault, issuance }
-}
+})
 
-export async function fetchPosition(address, shareMPTID) {
+export const fetchPosition = (address, shareMPTID) => cached(`pos:${address}:${shareMPTID}`, async () => {
   const c = await ledger()
   try {
     const r = await c.request({
@@ -55,7 +56,7 @@ export async function fetchPosition(address, shareMPTID) {
   } catch {
     return null // no MPToken object = never deposited
   }
-}
+})
 
 export const isXrpVault = (vault) => vault.Asset?.currency === 'XRP' && !vault.Asset?.issuer
 
@@ -129,5 +130,6 @@ export const rateToPct = (r) => (r == null ? null : r / 1000)
 export async function submitSigned(tx_json) {
   const c = await ledger()
   const r = await c.submitAndWait(encode(tx_json))
+  invalidate()   // anything on-chain may have moved
   return r.result
 }

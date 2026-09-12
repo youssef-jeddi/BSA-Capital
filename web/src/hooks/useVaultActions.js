@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { signTransaction } from '../wallet.js'
 import { assetAmount } from '../lib/ledger.js'
+import { invalidate } from '../lib/ledgerCache.js'
 
 /**
  * Deposit and withdraw against one vault. The wallet throws on any
@@ -17,6 +18,7 @@ export function useVaultActions({ session, address, vault, vaultId, onSettled })
     setSteps([{ label, state: 'pending' }])
     try {
       const res = await signTransaction(session, tx)
+      invalidate()
       const code = res?.tx_json?.meta?.TransactionResult
       setSteps([{ label, state: code === 'tesSUCCESS' ? 'ok' : 'fail', code, hash: res.hash }])
       onSettled?.()

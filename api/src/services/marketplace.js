@@ -103,7 +103,7 @@ async function verifyShareTransfer(client, hash, { destination, shareMptId, shar
   return { seller: json.Account }
 }
 
-async function verifyXrpPayment(client, hash, { destination, drops }) {
+async function verifyXrpPayment(client, hash, { destination, drops, notBefore }) {
   const tx = (await client.request({ command: 'tx', transaction: hash })).result
   const json = tx.tx_json ?? tx
   const raw = json.Amount ?? json.DeliverMax
@@ -111,8 +111,14 @@ async function verifyXrpPayment(client, hash, { destination, drops }) {
     && json.TransactionType === 'Payment'
     && json.Destination === destination
     && typeof raw === 'string'
-    && Number(raw) >= Number(drops)
+    && BigInt(raw) >= BigInt(drops)
   if (!good) throw new Error(`Transaction ${hash.slice(0, 12)}… is not a payment of at least ${drops} drops to the seller`)
+
+  // A payment older than the listing cannot have been made for it. Without this,
+  // any prior transfer to the seller — a refund, an unrelated debt — buys shares.
+  if (notBefore && tx.close_time_iso && new Date(tx.close_time_iso) < new Date(notBefore)) {
+    throw new Error(`That payment predates the listing, so it was not made for it.`)
+  }
   return { buyer: json.Account, paid: String(raw) }
 }
 
@@ -128,7 +134,7 @@ export async function prepare(vaultId) {
   })
 }
 
-export async function createListing({ vault_id, shares, ask_drops, transfer_hash }) {
+export async function createListing({ vault_id, shares, ask_drops, transfer_hash, seller }) {
   if (!/^[0-9A-Fa-f]{64}$/.test(vault_id ?? '')) return fail(400, 'vault_id must be 64 hex characters')
   if (!/^[0-9A-Fa-f]{64}$/.test(transfer_hash ?? '')) return fail(400, 'transfer_hash must be 64 hex characters')
   if (!/^\d+$/.test(String(shares))) return fail(400, 'shares must be a whole number')
@@ -140,12 +146,17 @@ export async function createListing({ vault_id, shares, ask_drops, transfer_hash
   return withLedger(async (client) => {
     const snap = await vaultSnapshot(client, vault_id)
     try {
-      const { seller } = await verifyShareTransfer(client, transfer_hash, {
+      const { seller: onChainSeller } = await verifyShareTransfer(client, transfer_hash, {
         destination: publicCustody().address, shareMptId: snap.share_mpt_id, shares,
       })
+      // The transfer's signer is the seller. A proven caller must be that account,
+      // otherwise anyone could list someone else's transfer under their own name.
+      if (seller && seller !== onChainSeller) {
+        return fail(403, `That transfer was sent by ${onChainSeller}, not by you.`)
+      }
       return ok(listings.insert({
         id, vault_id, share_mpt_id: snap.share_mpt_id, domain_id: snap.domain_id,
-        seller_address: seller, shares: String(shares), ask_drops: String(ask_drops),
+        seller_address: onChainSeller, shares: String(shares), ask_drops: String(ask_drops),
         nav_at_listing: snap.nav_drops == null ? null : String(snap.nav_drops),
         transfer_hash: transfer_hash.toUpperCase(),
       }))
@@ -153,53 +164,84 @@ export async function createListing({ vault_id, shares, ask_drops, transfer_hash
   })
 }
 
-/** Buyer has paid the seller; custody releases the shares. */
+/**
+ * Buyer has paid the seller; custody releases the shares.
+ *
+ * The listing is claimed in a single conditional UPDATE before anything moves, so a
+ * concurrent settle loses the race cleanly and a reused payment hash is rejected by
+ * the unique index rather than after delivery. Any failure after the claim releases
+ * it, leaving the listing open again.
+ */
 export async function settleListing(id, { payment_hash }) {
   const row = listings.findById(id)
   if (!row) return fail(404, 'No such listing.')
   if (row.status !== 'open') return fail(409, `This listing is ${row.status}.`)
   if (!/^[0-9A-Fa-f]{64}$/.test(payment_hash ?? '')) return fail(400, 'payment_hash must be 64 hex characters')
 
-  return withLedger(async (client) => {
-    let buyer
-    try {
-      ({ buyer } = await verifyXrpPayment(client, payment_hash, {
-        destination: row.seller_address, drops: row.ask_drops,
-      }))
-    } catch (e) { return fail(400, e.message) }
+  const already = listings.paymentUsed(payment_hash)
+  if (already) return fail(409, `That payment already settled listing ${already.id}. Each payment settles one listing.`)
 
-    // Re-check immediately before moving. With no Batch amendment the legs cannot be
-    // atomic, so a tecNO_AUTH here would leave the buyer paid and empty-handed.
-    const el = await eligibility(client, buyer, row.share_mpt_id, row.domain_id)
-    if (!el.ready) {
-      return fail(409, `Buyer cannot receive these shares (credential: ${el.credentialed}, opted in: ${el.opted_in}). `
-        + 'The payment has already left their account, so resolve eligibility and settle again.')
-    }
+  let claimed = false
+  try { claimed = listings.claimForSettlement(id, payment_hash) }
+  catch (e) {
+    // The unique index fires here when two settles race with the same hash.
+    return fail(409, `That payment is already being used to settle another listing. (${e.code ?? e.message})`)
+  }
+  if (!claimed) return fail(409, 'Another settlement is already in progress for this listing.')
 
-    const r = await submit(client, custodyWallet(), {
-      TransactionType: 'Payment', Account: publicCustody().address, Destination: buyer,
-      Amount: sharesAmount(row.share_mpt_id, row.shares),
+  try {
+    return await withLedger(async (client) => {
+      let buyer
+      try {
+        ({ buyer } = await verifyXrpPayment(client, payment_hash, {
+          destination: row.seller_address, drops: row.ask_drops, notBefore: row.created_at,
+        }))
+      } catch (e) { listings.releaseClaim(id); return fail(400, e.message) }
+
+      // Re-check immediately before moving. With no Batch amendment the legs cannot be
+      // atomic, so a tecNO_AUTH here would leave the buyer paid and empty-handed.
+      const el = await eligibility(client, buyer, row.share_mpt_id, row.domain_id)
+      if (!el.ready) {
+        listings.releaseClaim(id)
+        return fail(409, `Buyer cannot receive these shares (credential: ${el.credentialed}, opted in: ${el.opted_in}). `
+          + 'The payment has already left their account, so resolve eligibility and settle again.')
+      }
+
+      const r = await submit(client, custodyWallet(), {
+        TransactionType: 'Payment', Account: publicCustody().address, Destination: buyer,
+        Amount: sharesAmount(row.share_mpt_id, row.shares),
+      })
+      if (!r.ok) { listings.releaseClaim(id); return fail(500, `Share delivery failed: ${r.code}`) }
+      return ok(listings.markSold(id, { buyer_address: buyer, delivery_hash: r.hash }))
     })
-    if (!r.ok) return fail(500, `Share delivery failed: ${r.code}`)
-    return ok(listings.markSold(id, { buyer_address: buyer, payment_hash, delivery_hash: r.hash }))
-  })
+  } catch (e) {
+    listings.releaseClaim(id)
+    return fail(500, e.message)
+  }
 }
 
-/** Seller changed their mind; custody returns the shares. */
-export async function cancelListing(id, seller) {
+/** Seller changed their mind; custody returns the shares. The caller is proven. */
+export async function cancelListing(id, provedSeller) {
   const row = listings.findById(id)
   if (!row) return fail(404, 'No such listing.')
   if (row.status !== 'open') return fail(409, `This listing is ${row.status}.`)
-  if (seller && seller !== row.seller_address) return fail(403, 'Only the seller can cancel a listing.')
+  if (provedSeller !== row.seller_address) return fail(403, 'Only the seller can cancel this listing.')
 
-  return withLedger(async (client) => {
-    const r = await submit(client, custodyWallet(), {
-      TransactionType: 'Payment', Account: publicCustody().address, Destination: row.seller_address,
-      Amount: sharesAmount(row.share_mpt_id, row.shares),
+  if (!listings.claimForCancel(id)) return fail(409, 'This listing is already being settled or cancelled.')
+
+  try {
+    return await withLedger(async (client) => {
+      const r = await submit(client, custodyWallet(), {
+        TransactionType: 'Payment', Account: publicCustody().address, Destination: row.seller_address,
+        Amount: sharesAmount(row.share_mpt_id, row.shares),
+      })
+      if (!r.ok) { listings.releaseClaim(id); return fail(500, `Share return failed: ${r.code}`) }
+      return ok(listings.markCancelled(id, r.hash))
     })
-    if (!r.ok) return fail(500, `Share return failed: ${r.code}`)
-    return ok(listings.markCancelled(id, r.hash))
-  })
+  } catch (e) {
+    listings.releaseClaim(id)
+    return fail(500, e.message)
+  }
 }
 
 /** Shares custody holds with no open listing: the residue of a mid-flight failure. */
@@ -229,12 +271,17 @@ export async function board(filters) {
     }
     return ok(rows.map((row) => {
       const snap = snaps.get(row.vault_id)
-      const navTotal = snap?.nav_drops == null ? null : snap.nav_drops * Number(row.shares)
+      // Shares are stored as TEXT because they exceed safe integers; keep the
+      // multiplication in BigInt and only cross to Number for the percentage.
+      const navTotal = snap?.nav_drops == null ? null
+        : (BigInt(row.shares) * BigInt(Math.round(snap.nav_drops * 1e6))) / 1_000_000n
       return {
         ...row,
         snapshot: snap,
-        nav_drops_total: navTotal == null ? null : String(Math.round(navTotal)),
-        discount_pct: navTotal ? ((1 - Number(row.ask_drops) / navTotal) * 100) : null,
+        nav_drops_total: navTotal == null ? null : navTotal.toString(),
+        discount_pct: navTotal && navTotal > 0n
+          ? (1 - Number(BigInt(row.ask_drops) * 10_000n / navTotal) / 10_000) * 100
+          : null,
       }
     }))
   })

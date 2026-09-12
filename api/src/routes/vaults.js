@@ -1,4 +1,5 @@
 import * as service from '../services/vaults.js'
+import { requireProof } from '../services/auth.js'
 
 export default async function vaultRoutes(app) {
   app.get('/api/vaults', async (req, reply) =>
@@ -9,7 +10,7 @@ export default async function vaultRoutes(app) {
     return vault ? reply.send(vault) : reply.code(404).send({ errors: ['Vault not found.'] })
   })
 
-  app.post('/api/vaults', async (req, reply) => {
+  app.post('/api/vaults', { preHandler: requireProof((req) => req.body?.company_address) }, async (req, reply) => {
     const result = service.recordVault(req.body ?? {})
     return result.ok
       ? reply.code(201).send(result.data)

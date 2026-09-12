@@ -50,14 +50,14 @@ export default function UnwindPanel({ entry, nowMs, onRefresh }) {
   const redeemAll = () => run('Redeem sub-fund positions', async () => {
     let last = { result_code: 'tesSUCCESS' }
     for (const p of stillHeld) {
-      last = await withdrawFromSubFund(entry.vault_id, p.vault_id, p.shares)
+      last = await withdrawFromSubFund(entry.vault_id, p.vault_id, p.shares, entry.curator_address)
       if (last.result_code !== 'tesSUCCESS') break
     }
     return last
   })
 
   const repay = () => run('Repay the curator loan',
-    () => repayCuratorLoan(entry.vault_id, String(Math.ceil(Number(loan.outstanding)))))
+    () => repayCuratorLoan(entry.vault_id, String(Math.ceil(Number(loan.outstanding))), entry.curator_address))
 
   return (
     <fieldset>
