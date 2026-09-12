@@ -75,7 +75,7 @@ export default function App() {
   return (
     <main>
       <header>
-        <h1>Continuum</h1>
+        <h1>BSA Capital</h1>
         <span className="net">XRPL Devnet · {CHAIN}</span>
       </header>
 

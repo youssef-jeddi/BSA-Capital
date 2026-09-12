@@ -148,7 +148,7 @@ async function main() {
     RedemptionDate: redemptionDate,
     AssetsMaximum: xrpl.xrpToDrops('5000'),
     WithdrawalPolicy: 1,
-    Data: Buffer.from(JSON.stringify({ name: 'Continuum Test Fund I' })).toString('hex').toUpperCase(),
+    Data: Buffer.from(JSON.stringify({ name: 'BSA Capital Test Fund I' })).toString('hex').toUpperCase(),
   })
   if (!vc.ok) { log('\nVaultCreate failed — stopping here. This is the headline finding.'); return finish() }
 

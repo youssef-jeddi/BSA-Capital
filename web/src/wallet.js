@@ -12,7 +12,7 @@ export const CHAIN = 'xrpl:2' // 0 = mainnet, 1 = testnet, 2 = devnet
 export const METHODS = ['xrpl_signTransaction', 'xrpl_signTransactionFor']
 
 const METADATA = {
-  name: 'Continuum',
+  name: 'BSA Capital',
   description: 'Compliant secondary market for closed-ended lending-fund shares',
   url: window.location.origin,
   icons: [],

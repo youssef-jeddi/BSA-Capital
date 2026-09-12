@@ -1,6 +1,6 @@
-# Continuum
+# BSA Capital
 
-> Working title. A compliant secondary market for locked closed-ended lending-fund shares on the XRP Ledger.
+> A compliant secondary market for locked closed-ended lending-fund shares on the XRP Ledger.
 
 ## Submission facts
 
