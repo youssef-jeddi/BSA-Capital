@@ -226,3 +226,9 @@ label.inline select { width: auto; min-width: 150px; margin-top: 0; padding: 6px
 .st-raising { color: #e3b341; border-color: rgba(227,179,65,0.4); }
 .st-deployed { color: #3fb950; border-color: rgba(63,185,80,0.4); }
 button.primary.sm { padding: 5px 12px; font-size: 12px; }
+.handoff { background: rgba(76,141,255,0.07); border: 1px solid rgba(76,141,255,0.35);
+           border-radius: 8px; padding: 14px 16px; }
+.handoff-head b { display: block; font-size: 13px; }
+.handoff-head small { display: block; font-size: 11px; color: var(--dim); margin: 3px 0 10px; }
+.handoff .dim { margin-bottom: 12px; }
+.handoff code { background: #0d1117; padding: 2px 6px; border-radius: 4px; }
