@@ -3,7 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "probe": "node scripts/00-probe-sdk.mjs"
+    "api": "npm --prefix api run dev",
+    "web": "npm --prefix web run dev",
+    "spike": "node scripts/01-spike.mjs",
+    "lifecycle": "node scripts/03-loan-lifecycle.mjs",
+    "seed": "node scripts/04-seed-funds.mjs"
   },
   "dependencies": {
     "xrpl": "5.2.0-beta.1"

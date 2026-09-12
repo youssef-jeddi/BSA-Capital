@@ -14,7 +14,7 @@
 | RPC | `https://s.devnet.rippletest.net:51234/` |
 | WSS | `wss://s.devnet.rippletest.net:51233/` |
 | Explorer | `https://devnet.xrpl.org` |
-| Library | `xrpl.js@5.2.0-beta.0` |
+| Library | `xrpl.js@5.2.0-beta.1` |
 | Wallet | `oz-ross/xrpl-dev-wallet-extension` @ `upgrade-lending-protocol-1.1` (WalletConnect v2, chain `xrpl:2`) |
 
 ## What this does
