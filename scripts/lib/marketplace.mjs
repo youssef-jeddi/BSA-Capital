@@ -111,6 +111,7 @@ export async function vaultSnapshot(vaultId) {
     domainID: issuance.DomainID ?? null,
     pseudoAccount: vault.Account,
     assetsTotal: vault.AssetsTotal,
+    assetsAvailable: vault.AssetsAvailable,
     outstanding: issuance.OutstandingAmount,
     // NAV per share. Vault asset is XRP in our vaults, so the unit is drops.
     navDrops: outstanding ? Number(vault.AssetsTotal ?? 0) / outstanding : null,

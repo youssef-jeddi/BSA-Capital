@@ -16,8 +16,15 @@ import * as edelid from '../scripts/lib/edelid.mjs'
 import { CREDENTIAL_TYPE, findCredential, issueCredential, master, toHex } from '../scripts/lib/issuer.mjs'
 import {
   cancelListing, createListing, custody, eligibility, ensureCustodyOptedIn,
-  listing, listings, settleListing, vaultSnapshot,
+  listing, listings, settleListing, strandedShares, vaultSnapshot,
 } from '../scripts/lib/marketplace.mjs'
+import { runScenario } from '../scripts/lib/scenario.mjs'
+
+/**
+ * The scenario takes a couple of minutes — it funds five accounts and waits out a
+ * real Subscription window — so it runs detached and the browser polls this log.
+ */
+const job = { running: false, log: [], summary: null, error: null, startedAt: null }
 
 /**
  * Two ways to reach the same wallet. `eudi` talks to the EU reference verifier
@@ -100,6 +107,30 @@ async function route(req, res) {
   }
 
   // ── marketplace ────────────────────────────────────────
+
+  // POST /market/scenario — start one; GET — follow it.
+  if (req.method === 'POST' && seg[0] === 'market' && seg[1] === 'scenario') {
+    if (job.running) return send(res, 409, { error: 'a scenario is already running' })
+    const { holder } = await readBody(req)
+    Object.assign(job, { running: true, log: [], summary: null, error: null, startedAt: Date.now() })
+    runScenario({ holder: holder ?? null, log: (line) => { job.log.push(String(line)); console.log('[scenario]', line) } })
+      .then((summary) => { job.summary = summary })
+      .catch((e) => { job.error = e.message; job.log.push(`FAILED: ${e.message}`) })
+      .finally(() => { job.running = false })
+    return send(res, 200, { started: true })
+  }
+  if (req.method === 'GET' && seg[0] === 'market' && seg[1] === 'scenario') {
+    return send(res, 200, { ...job, elapsedMs: job.startedAt ? Date.now() - job.startedAt : 0 })
+  }
+
+  // GET /market/stranded?vault= — shares custody holds with no open listing, the
+  // residue of a transfer that landed while its listing was never recorded.
+  if (req.method === 'GET' && seg[0] === 'market' && seg[1] === 'stranded') {
+    const vaultId = url.searchParams.get('vault')
+    if (!vaultId) return send(res, 400, { error: 'vault required' })
+    const snap = await vaultSnapshot(vaultId)
+    return send(res, 200, await strandedShares(snap.shareMPTID))
+  }
 
   // GET /market — listings enriched with live NAV, so the discount is current
   // rather than whatever it was when the seller listed.

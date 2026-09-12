@@ -46,11 +46,35 @@ export default function Marketplace({ session, address }) {
   // per-listing eligibility, keyed by vaultId
   const [elig, setElig] = useState({})
 
+  // demo scenario runner
+  const [job, setJob] = useState(null)
+
   const load = useCallback(async () => {
     try { setMarket(await api('/market')) } catch (e) { setError(e.message) }
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // While a scenario runs, follow its log and refresh the market when it lands.
+  useEffect(() => {
+    if (!job?.running) return
+    const t = setInterval(async () => {
+      try {
+        const next = await api('/market/scenario')
+        setJob(next)
+        if (!next.running) { load(); if (next.summary) setVaultId(next.summary.vaultId) }
+      } catch { /* keep polling */ }
+    }, 2000)
+    return () => clearInterval(t)
+  }, [job?.running, load])
+
+  async function runScenario() {
+    setError(''); setSteps([])
+    try {
+      await api('/market/scenario', { method: 'POST', body: JSON.stringify({ holder: address }) })
+      setJob({ running: true, log: ['starting…'] })
+    } catch (e) { setError(e.message) }
+  }
 
   // Eligibility is per vault (its own domain and share MPT), not per listing.
   useEffect(() => {
@@ -170,6 +194,31 @@ export default function Marketplace({ session, address }) {
         seller directly.
         {market && <> Custody: <span className="mono">{market.custody}</span>.</>}
       </p>
+
+      {/* ── scenario runner ───────────────────────────────── */}
+      <fieldset>
+        <legend>Demo scenario</legend>
+        <p className="dim">
+          Stands up a private closed-ended vault, three LPs, a loan that lifts NAV above par,
+          and two discounted listings — then issues a credential to your wallet. Takes about
+          two minutes: it funds five Devnet accounts and waits out a real Subscription window.
+        </p>
+        <div className="row">
+          <button className="primary" onClick={runScenario} disabled={job?.running}>
+            {job?.running ? 'Running…' : 'Run demo scenario'}
+          </button>
+          {job?.summary && <span className="tag">NAV {job.summary.navDrops} drops/share</span>}
+        </div>
+        {job?.log?.length > 0 && (
+          <pre className="scenariolog">{job.log.join('\n')}</pre>
+        )}
+        {job?.summary && (
+          <p className="dim">
+            Credential issued to <span className="mono">{address}</span> — accept it in the{' '}
+            <b>Identity</b> tab, then come back, opt in, and buy.
+          </p>
+        )}
+      </fieldset>
 
       {/* ── buy ───────────────────────────────────────────── */}
       <fieldset>

@@ -159,3 +159,5 @@ fieldset[disabled] { opacity: 0.55; }
 .listing { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
 .listing .stats { margin-top: 0; }
 .listing .row { margin-top: 10px; }
+.scenariolog { max-height: 260px; overflow: auto; font-size: 11px; line-height: 1.5;
+               margin-top: 12px; white-space: pre-wrap; }
