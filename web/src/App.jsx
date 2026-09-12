@@ -4,6 +4,7 @@ import { startPairing, restoreSession, disconnect, accountOf, allSessions, getCl
 import CreateVault from './components/CreateVault.jsx'
 import Invest from './components/vaults/Invest.jsx'
 import Borrower from './components/Borrower.jsx'
+import SuperVaults from './components/super/SuperVaults.jsx'
 import Onboarding from './components/onboarding/Onboarding.jsx'
 import CompanyForm from './components/onboarding/CompanyForm.jsx'
 import UserForm from './components/onboarding/UserForm.jsx'
@@ -22,10 +23,12 @@ const TABS_BY_ROLE = {
     { id: 'broker', label: 'Issue a fund' },
     { id: 'depositor', label: 'Invest' },
     { id: 'borrower', label: 'Borrow' },
+    { id: 'super', label: 'Super vaults' },
     { id: 'profile', label: 'Company profile' },
   ],
   user: [
     { id: 'depositor', label: 'Invest' },
+    { id: 'super', label: 'Super vaults' },
     { id: 'profile', label: 'My profile' },
   ],
 }
@@ -179,6 +182,7 @@ export default function App() {
               {activeTab === 'broker' && <CreateVault key={address} session={session} address={address} company={profile} />}
               {activeTab === 'depositor' && <Invest key={address} session={session} address={address} />}
               {activeTab === 'borrower' && <Borrower key={address} session={session} address={address} />}
+              {activeTab === 'super' && <SuperVaults key={address} session={session} address={address} company={profile} role={role} />}
               {activeTab === 'profile' && (role === 'company'
                 ? <CompanyForm address={address} existing={profile} onDone={refreshProfile} />
                 : <UserForm address={address} existing={profile} onDone={refreshProfile} />)}

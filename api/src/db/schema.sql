@@ -48,3 +48,39 @@ CREATE TABLE IF NOT EXISTS vaults (
 );
 
 CREATE INDEX IF NOT EXISTS idx_vaults_company ON vaults(company_address);
+
+-- Super vaults: a curated fund-of-funds.
+--
+-- A vault pseudo-account cannot sign, so a vault can never be a depositor in
+-- another vault and native composition is impossible. The workaround is the
+-- protocol's own escape hatch: the super vault is itself a close-ended XLS-65
+-- vault that lends its capital to the curator via XLS-66, and the curator
+-- deposits that principal into the chosen sub-vaults. Repayment with interest
+-- flows back and steps the super vault's price per share.
+CREATE TABLE IF NOT EXISTS super_vaults (
+  vault_id          TEXT PRIMARY KEY,
+  curator_address   TEXT NOT NULL REFERENCES companies(address),
+  -- The curator borrows the raise from its own super vault, but a LoanSet is
+  -- rejected when Account equals Counterparty, so the borrowing arm must be a
+  -- separate account. In a real structure that is the SPV.
+  deployment_address TEXT NOT NULL,
+  loan_broker_id    TEXT,
+  loan_id           TEXT,              -- super vault -> curator, set on deploy
+  name              TEXT NOT NULL,
+  strategy          TEXT,
+  subscription_date INTEGER,
+  redemption_date   INTEGER,
+  status            TEXT NOT NULL DEFAULT 'raising',  -- raising | deployed | unwinding
+  created_at        TEXT NOT NULL
+);
+
+-- Target allocation across sub-vaults, in basis points of the raise.
+CREATE TABLE IF NOT EXISTS super_vault_allocations (
+  super_vault_id TEXT NOT NULL REFERENCES super_vaults(vault_id),
+  sub_vault_id   TEXT NOT NULL,
+  target_bps     INTEGER NOT NULL,
+  deposited_tx   TEXT,
+  PRIMARY KEY (super_vault_id, sub_vault_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_super_curator ON super_vaults(curator_address);

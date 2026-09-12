@@ -45,8 +45,11 @@ export function validateEnum(value, allowed, field) {
   return allowed.includes(trimmed(value)) ? null : `${field} must be one of ${allowed.join(', ')}`
 }
 
-/** Collect the non-null results of a list of checks. */
-export const collect = (...checks) => checks.filter(Boolean)
+/**
+ * Collect the failures from a list of checks. Each check yields either an error
+ * string, null, or an array of errors from a nested validator, so flatten.
+ */
+export const collect = (...checks) => checks.flat(Infinity).filter(Boolean)
 
 export function validateCompanyInput(input) {
   return collect(
