@@ -38,3 +38,11 @@ export const listVaults = (company) =>
   request(`/vaults${company ? `?company=${company}` : ''}`)
 export const getVault = (vaultId) => request(`/vaults/${vaultId}`)
 export const recordVault = (data) => post('/vaults', data)
+
+export const listSuperVaults = (curator) =>
+  request(`/super-vaults${curator ? `?curator=${curator}` : ''}`)
+export const getSuperVault = (id) => request(`/super-vaults/${id}`)
+export const createSuperVault = (data) => post('/super-vaults', data)
+export const markSuperVaultDeployed = (id, loan_id) => post(`/super-vaults/${id}/deploy`, { loan_id })
+export const markAllocationFunded = (id, subId, tx_hash) =>
+  post(`/super-vaults/${id}/allocations/${subId}/funded`, { tx_hash })
