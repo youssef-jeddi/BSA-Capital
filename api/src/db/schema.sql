@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS companies (
   contact_email TEXT,
   -- 'pending' until the credential flow verifies the company. Owned by the
   -- credentials work, not by onboarding: this column is the seam between them.
+  -- Superseded by the zone system: verification is a zone credential on the
+  -- ledger, not a row here. Kept only because SQLite cannot drop a column
+  -- portably; nothing reads or writes it.
   status        TEXT NOT NULL DEFAULT 'pending',
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
@@ -73,7 +76,8 @@ CREATE TABLE IF NOT EXISTS super_vaults (
   subscription_date INTEGER,
   redemption_date   INTEGER,
   loan_maturity     INTEGER,          -- when the curator loan must be fully repaid
-  status            TEXT NOT NULL DEFAULT 'raising',  -- raising | deployed | unwinding
+  interest_rate     INTEGER,          -- 1/10th bps, ledger cap 100000 (10% annual)
+  status            TEXT NOT NULL DEFAULT 'raising',  -- raising | deployed
   created_at        TEXT NOT NULL
 );
 
@@ -132,7 +136,7 @@ CREATE TABLE IF NOT EXISTS listings (
   shares         TEXT NOT NULL,
   ask_drops      TEXT NOT NULL,
   nav_at_listing TEXT,                    -- drops per share when listed, for context only
-  status         TEXT NOT NULL DEFAULT 'open',   -- open | sold | cancelled
+  status         TEXT NOT NULL DEFAULT 'open',   -- open | settling | cancelling | sold | cancelled
   buyer_address  TEXT,
   transfer_hash  TEXT NOT NULL,           -- seller -> custody
   payment_hash   TEXT,                    -- buyer  -> seller
@@ -141,6 +145,12 @@ CREATE TABLE IF NOT EXISTS listings (
   created_at     TEXT NOT NULL,
   settled_at     TEXT
 );
+
+-- A payment hash may settle at most one listing. Without this, one payment to a
+-- seller settles every listing they have open, and any unrelated prior payment to
+-- them qualifies too.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_payment ON listings(payment_hash)
+  WHERE payment_hash IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status);
 CREATE INDEX IF NOT EXISTS idx_listings_vault  ON listings(vault_id);

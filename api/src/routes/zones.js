@@ -2,6 +2,7 @@ import {
   setupZones, listZoneDomains, domainForZones, issueZoneCredential, zonesOf, publicAdmin,
 } from '../services/platformAdmin.js'
 import { ZONES, validateZones } from '../lib/zones.js'
+import { requireProof } from '../services/auth.js'
 
 export default async function zoneRoutes(app) {
   /** The zone catalogue and the domain backing each combination. */
@@ -27,7 +28,8 @@ export default async function zoneRoutes(app) {
    * Issue a zone credential after the investor attests to their residency.
    * They still have to accept it with their own wallet.
    */
-  app.post('/api/zones/credentials', async (req, reply) => {
+  // A credential is issued only to the account that asked for it.
+  app.post('/api/zones/credentials', { preHandler: requireProof((req) => req.body?.address) }, async (req, reply) => {
     const { address, zone } = req.body ?? {}
     const errors = validateZones(zone ? [zone] : [])
     if (!address) errors.push('address is required')

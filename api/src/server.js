@@ -6,12 +6,14 @@ import vaultRoutes from './routes/vaults.js'
 import superVaultRoutes from './routes/superVaults.js'
 import zoneRoutes from './routes/zones.js'
 import marketplaceRoutes from './routes/marketplace.js'
+import authRoutes from './routes/auth.js'
 
 const PORT = Number(process.env.PORT ?? 8787)
 
 const app = Fastify({ logger: { transport: { target: 'pino-pretty' } } })
 
 app.get('/api/health', async () => ({ ok: true }))
+await app.register(authRoutes)
 await app.register(profileRoutes)
 await app.register(vaultRoutes)
 await app.register(superVaultRoutes)

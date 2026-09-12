@@ -2,6 +2,7 @@
 import * as onboarding from '../services/onboarding.js'
 import * as companies from '../repositories/companies.js'
 import * as users from '../repositories/users.js'
+import { requireProof } from '../services/auth.js'
 
 const send = (reply, result, createdStatus = 200) =>
   result.ok
@@ -20,18 +21,18 @@ export default async function profileRoutes(app) {
     return company ? reply.send(company) : reply.code(404).send({ errors: ['Company not found.'] })
   })
 
-  app.post('/api/companies', async (req, reply) =>
+  app.post('/api/companies', { preHandler: requireProof((req) => req.body?.address) }, async (req, reply) =>
     send(reply, onboarding.registerCompany(req.body ?? {}), 201))
 
-  app.put('/api/companies/:address', async (req, reply) =>
+  app.put('/api/companies/:address', { preHandler: requireProof((req) => req.params.address) }, async (req, reply) =>
     send(reply, onboarding.updateCompany(req.params.address, req.body ?? {})))
 
   app.get('/api/users', async (req, reply) =>
     reply.send(users.list({ status: req.query.status })))
 
-  app.post('/api/users', async (req, reply) =>
+  app.post('/api/users', { preHandler: requireProof((req) => req.body?.address) }, async (req, reply) =>
     send(reply, onboarding.registerUser(req.body ?? {}), 201))
 
-  app.put('/api/users/:address', async (req, reply) =>
+  app.put('/api/users/:address', { preHandler: requireProof((req) => req.params.address) }, async (req, reply) =>
     send(reply, onboarding.updateUser(req.params.address, req.body ?? {})))
 }

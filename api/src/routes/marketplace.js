@@ -1,5 +1,7 @@
 import * as market from '../services/marketplace.js'
 import { publicCustody, setupCustody, withLedger } from '../services/custody.js'
+import { requireProof } from '../services/auth.js'
+import * as listings from '../repositories/listings.js'
 
 const send = (reply, result, created = 200) =>
   result.ok ? reply.code(created).send(result.data)
@@ -54,14 +56,17 @@ export default async function marketplaceRoutes(app) {
   app.post('/api/market/prepare', async (req, reply) =>
     send(reply, await market.prepare(req.body?.vault_id)))
 
-  app.post('/api/market/listings', async (req, reply) =>
-    send(reply, await market.createListing(req.body ?? {}), 201))
+  /** The seller proves control of the account that paid the shares to custody. */
+  app.post('/api/market/listings', { preHandler: requireProof() }, async (req, reply) =>
+    send(reply, await market.createListing({ ...req.body, seller: req.provedAddress }), 201))
 
-  app.post('/api/market/listings/:id/settle', async (req, reply) =>
-    send(reply, await market.settleListing(req.params.id, req.body ?? {})))
+  app.post('/api/market/listings/:id/settle', { preHandler: requireProof() }, async (req, reply) =>
+    send(reply, await market.settleListing(req.params.id, { ...req.body, buyer: req.provedAddress })))
 
-  app.post('/api/market/listings/:id/cancel', async (req, reply) =>
-    send(reply, await market.cancelListing(req.params.id, req.body?.seller)))
+  /** Only the seller, proven by signature rather than asserted in the body. */
+  app.post('/api/market/listings/:id/cancel',
+    { preHandler: requireProof((req) => listings.findById(req.params.id)?.seller_address) },
+    async (req, reply) => send(reply, await market.cancelListing(req.params.id, req.provedAddress)))
 
   /** Reconciliation: shares custody holds with no open listing. */
   app.get('/api/market/stranded', async (req, reply) => {

@@ -65,6 +65,7 @@ export function createSuperVault(input) {
     subscription_date: input.subscription_date ?? null,
     redemption_date: input.redemption_date ?? null,
     loan_maturity: input.loan_maturity ?? null,
+    interest_rate: input.interest_rate ?? 5000,
   }, allocations.map((a) => ({
     sub_vault_id: a.sub_vault_id.toUpperCase(),
     target_bps: Number(a.target_bps),

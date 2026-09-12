@@ -79,7 +79,7 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
       if (code === 'tesSUCCESS') {
         clearPendingLoan(entry.vault_id)
         refreshPending()
-        if (loan) await markSuperVaultDeployed(entry.vault_id, loan.LedgerIndex).catch(() => {})
+        if (loan) await markSuperVaultDeployed(entry.vault_id, loan.LedgerIndex, entry.curator_address).catch(() => {})
         onDone?.()
       }
     } catch (e) {
@@ -98,7 +98,7 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
     try {
       const held = getPendingLoan(entry.vault_id)
       if (!held) throw new Error('No half-signed loan is waiting for this super vault.')
-      const out = await counterSignWithDeployer(entry.vault_id, held.txJson)
+      const out = await counterSignWithDeployer(entry.vault_id, held.txJson, entry.curator_address)
       const ok = out.result_code === 'tesSUCCESS'
       setSteps([{ label: 'LoanSet', state: ok ? 'ok' : 'fail', code: out.result_code,
                   hash: out.hash, detail: out.loan_id ? `LoanID ${out.loan_id}` : undefined }])
@@ -115,7 +115,7 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
       const amount = splitRaise(entry, entry.positions)
         .find((p) => p.sub_vault_id === position.sub_vault_id)?.amount
       if (!amount || amount === '0') throw new Error('Nothing to allocate to this fund.')
-      const out = await depositAsDeployer(entry.vault_id, position.sub_vault_id, amount)
+      const out = await depositAsDeployer(entry.vault_id, position.sub_vault_id, amount, entry.curator_address)
       setSteps([{ label: `VaultDeposit → ${position.sub_vault_name}`,
                   state: out.result_code === 'tesSUCCESS' ? 'ok' : 'fail',
                   code: out.result_code, hash: out.hash }])
@@ -156,7 +156,9 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
           Counterparty: entry.deployment_address,
           LoanBrokerID: entry.loan_broker_id,
           PrincipalRequested: String(raised),
-          InterestRate: 5000,
+          // The curator chose this when launching; the spread over what the
+          // sub-funds earn is their return, and any shortfall is their loss.
+          InterestRate: entry.interest_rate ?? 5000,
           PaymentInterval: schedule.PaymentInterval,
           PaymentTotal: schedule.PaymentTotal,
           GracePeriod: schedule.GracePeriod,
@@ -171,7 +173,7 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
       // 2. Deployment account counter-signs and the loan is submitted.
       if (entry.status !== 'deployed') {
         push({ label: '2 · Deployment account counter-signs', state: 'pending' })
-        const out = await counterSignWithDeployer(entry.vault_id, held.txJson)
+        const out = await counterSignWithDeployer(entry.vault_id, held.txJson, entry.curator_address)
         if (out.result_code !== 'tesSUCCESS') throw new Error(`LoanSet: ${out.result_code}`)
         clearPendingLoan(entry.vault_id); refreshPending()
         settle({ state: 'ok', code: out.result_code, hash: out.hash,
@@ -185,7 +187,7 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
         const amount = split.find((x) => x.sub_vault_id === position.sub_vault_id)?.amount
         if (!amount || amount === '0') continue
         push({ label: `3 · Fund ${position.sub_vault_name ?? 'sub-fund'}`, state: 'pending' })
-        const out = await depositAsDeployer(entry.vault_id, position.sub_vault_id, amount)
+        const out = await depositAsDeployer(entry.vault_id, position.sub_vault_id, amount, entry.curator_address)
         settle({ state: out.result_code === 'tesSUCCESS' ? 'ok' : 'fail',
                  code: out.result_code, hash: out.hash })
         if (out.result_code !== 'tesSUCCESS') {
@@ -224,7 +226,7 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
       setSteps([{ label: `VaultDeposit → ${position.sub_vault_name}`,
                   state: code === 'tesSUCCESS' ? 'ok' : 'fail', code, hash: res.hash }])
       if (code === 'tesSUCCESS') {
-        await markAllocationFunded(entry.vault_id, position.sub_vault_id, res.hash).catch(() => {})
+        await markAllocationFunded(entry.vault_id, position.sub_vault_id, res.hash, entry.curator_address).catch(() => {})
       }
       onDone?.()
     } catch (e) {

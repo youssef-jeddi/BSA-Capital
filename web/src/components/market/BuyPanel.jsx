@@ -55,7 +55,7 @@ export default function BuyPanel({ listing, session, address, onSettled, onCance
       settle({ state: 'ok', code, hash: res.hash })
 
       push({ label: 'Custody releases the shares', state: 'pending' })
-      const row = await settleListing(listing.id, res.hash)
+      const row = await settleListing(listing.id, res.hash, address)
       settle({ state: 'ok', detail: `Delivery ${row.delivery_hash?.slice(0, 12)}…` })
       onSettled?.(row)
     } catch (e) {

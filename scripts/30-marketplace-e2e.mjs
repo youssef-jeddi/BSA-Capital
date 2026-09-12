@@ -8,6 +8,7 @@
 import * as xrpl from 'xrpl'
 import fs from 'node:fs'
 import path from 'node:path'
+import { proveControl } from './lib/auth.mjs'
 
 const API = process.env.API ?? 'http://127.0.0.1:8787'
 const ROOT = path.resolve(import.meta.dirname, '..')
@@ -16,8 +17,9 @@ const log = (...a) => console.log(...a)
 const hex = (s) => Buffer.from(s).toString('hex').toUpperCase()
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
-async function api(p, body, method = 'POST') {
-  const res = await fetch(API + p, body ? { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : undefined)
+async function api(p, body, method = 'POST', wallet) {
+  const payload = body && wallet ? { ...body, proof: await proveControl(API, wallet) } : body
+  const res = await fetch(API + p, payload ? { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) } : undefined)
   const j = await res.json().catch(() => null)
   if (!res.ok) throw new Error(j?.errors?.[0] ?? `HTTP ${res.status} ${p}`)
   return j
@@ -45,7 +47,7 @@ async function main() {
   const custody = (await api('/api/market/custody', null, 'GET')).address
   log(`seller  ${seller.address}\nbuyer   ${buyer.address}\ncustody ${custody}\n`)
 
-  await api('/api/companies', { address: broker.address, name: 'BSA Capital', activity: 'Private credit', country: 'FR' }).catch(() => {})
+  await api('/api/companies', { address: broker.address, name: 'BSA Capital', activity: 'Private credit', country: 'FR' }, 'POST', broker).catch(() => {})
   const { domain_id } = await api('/api/zones/domain', { zones: ['EU'] })
 
   log('── vault gated to EU, Investment in 3 min ──')
@@ -58,10 +60,10 @@ async function main() {
     Data: hex(JSON.stringify({ name: 'Marketplace Test Fund' })),
   })
   const vaultId = created(vr.result, 'Vault').LedgerIndex
-  await api('/api/vaults', { vault_id: vaultId, company_address: broker.address, name: 'Marketplace Test Fund', zones: ['EU'], domain_id, is_private: true, subscription_date: rt(3), redemption_date: rt(60) })
+  await api('/api/vaults', { vault_id: vaultId, company_address: broker.address, name: 'Marketplace Test Fund', zones: ['EU'], domain_id, is_private: true, subscription_date: rt(3), redemption_date: rt(60) }, 'POST', broker)
 
   log('\n── seller gets an EU credential and subscribes ──')
-  const iss = await api('/api/zones/credentials', { address: seller.address, zone: 'EU' })
+  const iss = await api('/api/zones/credentials', { address: seller.address, zone: 'EU' }, 'POST', seller)
   await send('CredentialAccept (seller)', seller, { TransactionType: 'CredentialAccept', Account: seller.address, Issuer: iss.issuer, CredentialType: iss.credential_type })
   await send('VaultDeposit 50 XRP', seller, { TransactionType: 'VaultDeposit', Account: seller.address, VaultID: vaultId, Amount: xrpl.xrpToDrops('50') })
 
@@ -77,7 +79,7 @@ async function main() {
     TransactionType: 'Payment', Account: seller.address, Destination: custody,
     Amount: { mpt_issuance_id: prep.share_mpt_id, value: '50000000' },
   })
-  const listing = await api('/api/market/listings', { vault_id: vaultId, shares: '50000000', ask_drops: xrpl.xrpToDrops('45'), transfer_hash: xfer.hash })
+  const listing = await api('/api/market/listings', { vault_id: vaultId, shares: '50000000', ask_drops: xrpl.xrpToDrops('45'), transfer_hash: xfer.hash }, 'POST', seller)
   log(`  listing ${listing.id} · ask 45 XRP`)
   const board = await api('/api/market?status=open', null, 'GET')
   const mine = board.find((b) => b.id === listing.id)
@@ -91,16 +93,16 @@ async function main() {
   el = await api(`/api/market/eligibility?vault=${vaultId}&account=${buyer.address}`, null, 'GET')
   log(`  opted in but no credential   -> credentialed=${el.credentialed} opted_in=${el.opted_in} ready=${el.ready}   <- opt-in proves nothing`)
 
-  const bi = await api('/api/zones/credentials', { address: buyer.address, zone: 'EU' })
+  const bi = await api('/api/zones/credentials', { address: buyer.address, zone: 'EU' }, 'POST', buyer)
   await send('CredentialAccept (buyer)', buyer, { TransactionType: 'CredentialAccept', Account: buyer.address, Issuer: bi.issuer, CredentialType: bi.credential_type })
   el = await api(`/api/market/eligibility?vault=${vaultId}&account=${buyer.address}`, null, 'GET')
   log(`  both gates                   -> credentialed=${el.credentialed} opted_in=${el.opted_in} ready=${el.ready}`)
 
   log('\n── settle ──')
   const pay = await send('Payment 45 XRP buyer -> seller', buyer, { TransactionType: 'Payment', Account: buyer.address, Destination: seller.address, Amount: xrpl.xrpToDrops('45') })
-  try { await api(`/api/market/listings/${listing.id}/settle`, { payment_hash: 'A'.repeat(64) }); log('  FAIL bogus hash accepted') }
+  try { await api(`/api/market/listings/${listing.id}/settle`, { payment_hash: 'A'.repeat(64) }, 'POST', buyer); log('  FAIL bogus hash accepted') }
   catch (e) { log(`  OK   bogus payment hash rejected: ${e.message.slice(0, 52)}…`) }
-  const sold = await api(`/api/market/listings/${listing.id}/settle`, { payment_hash: pay.hash })
+  const sold = await api(`/api/market/listings/${listing.id}/settle`, { payment_hash: pay.hash }, 'POST', buyer)
   log(`  OK   settled -> ${sold.status}, delivery ${sold.delivery_hash?.slice(0, 12)}…`)
 
   const held = (await c.request({ command: 'ledger_entry', mptoken: { mpt_issuance_id: prep.share_mpt_id, account: buyer.address } })).result.node

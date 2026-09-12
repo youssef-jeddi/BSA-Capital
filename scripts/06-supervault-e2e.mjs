@@ -9,6 +9,7 @@
 import * as xrpl from 'xrpl'
 import fs from 'node:fs'
 import path from 'node:path'
+import { proveControl } from './lib/auth.mjs'
 
 const API = process.env.API ?? 'http://127.0.0.1:8787'
 const ROOT = path.resolve(import.meta.dirname, '..')
@@ -26,9 +27,10 @@ const W = Object.fromEntries(Object.entries(
   JSON.parse(fs.readFileSync(path.join(ROOT, 'data/accounts.json'), 'utf8')))
   .map(([k, s]) => [k, xrpl.Wallet.fromSeed(s)]))
 
-async function api(pathname, body) {
-  const res = await fetch(`${API}${pathname}`, body ? {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+async function api(pathname, body, wallet) {
+  const payload = body && wallet ? { ...body, proof: await proveControl(API, wallet) } : body
+  const res = await fetch(`${API}${pathname}`, payload ? {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
   } : undefined)
   const json = await res.json().catch(() => null)
   if (!res.ok) throw new Error(json?.errors?.[0] ?? `HTTP ${res.status} on ${pathname}`)
@@ -68,7 +70,7 @@ async function main() {
   await api('/api/companies', {
     address: W.broker.address, name: 'BSA Capital',
     activity: 'Private credit fund manager', country: 'FR',
-  }).catch(() => {})
+  }, W.broker).catch(() => {})
 
   log('── 1. Two sub-funds ──')
   const subs = []
@@ -89,7 +91,7 @@ async function main() {
       vault_id: id, company_address: W.broker.address, name,
       loan_broker_id: created(br, 'LoanBroker')?.LedgerIndex,
       asset_code: 'XRP', subscription_date: rippleAt(SUB_FUND.sub), redemption_date: rippleAt(SUB_FUND.red),
-    })
+    }, W.broker)
     subs.push({ id, name })
   }
 
@@ -115,7 +117,7 @@ async function main() {
     subscription_date: rippleAt(SUPER.sub), redemption_date: rippleAt(SUPER.red),
     loan_maturity: rippleAt(SUPER.loan),
     allocations: subs.map((s) => ({ sub_vault_id: s.id, target_bps: 5000 })),
-  })
+  }, W.broker)
   log(`  indexed with a 50/50 allocation, cascade accepted`)
 
   log('\n── 3. Depositor subscribes ──')
@@ -138,7 +140,7 @@ async function main() {
     InterestRate: 5000, PaymentInterval: 120, PaymentTotal: 2, GracePeriod: 60,
   })
   const halfSigned = xrpl.decode(W.broker.sign(prepared).tx_blob)
-  const out = await api(`/api/super-vaults/${superId}/counter-sign`, { tx_json: halfSigned })
+  const out = await api(`/api/super-vaults/${superId}/counter-sign`, { tx_json: halfSigned }, W.broker)
   log(`  ${out.result_code === 'tesSUCCESS' ? 'OK  ' : 'FAIL'} LoanSet via API${''.padEnd(19)} ${out.result_code}`)
   log(`       ${EX}${out.hash}`)
   if (out.result_code !== 'tesSUCCESS') throw new Error('counter-sign failed')
@@ -147,7 +149,7 @@ async function main() {
   log('\n── 6. Deployment account allocates ──')
   const each = String(Math.floor(Number(vaultNow.AssetsAvailable) / 2))
   for (const s of subs) {
-    const d = await api(`/api/super-vaults/${superId}/allocations/${s.id}/deposit`, { amount: each })
+    const d = await api(`/api/super-vaults/${superId}/allocations/${s.id}/deposit`, { amount: each }, W.broker)
     log(`  ${d.result_code === 'tesSUCCESS' ? 'OK  ' : 'FAIL'} deposit -> ${s.name.padEnd(22)} ${d.result_code}`)
   }
 

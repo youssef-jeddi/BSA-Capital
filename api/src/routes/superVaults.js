@@ -3,6 +3,7 @@ import {
   counterSignLoan, depositToVault, publicAccount,
   repayLoan, withdrawFromVault, unwindState,
 } from '../services/deploymentAccount.js'
+import { requireProof } from '../services/auth.js'
 
 const send = (reply, result, created = 200) =>
   result.ok ? reply.code(created).send(result.data)
@@ -13,7 +14,7 @@ export default async function superVaultRoutes(app) {
   app.get('/api/deployment-account', async (req, reply) => reply.send(publicAccount()))
 
   /** One-button counter-sign: the server signs as the deployment account and submits. */
-  app.post('/api/super-vaults/:vaultId/counter-sign', async (req, reply) => {
+  app.post('/api/super-vaults/:vaultId/counter-sign', { preHandler: requireProof((req) => service.getSuperVault(req.params.vaultId)?.curator_address) }, async (req, reply) => {
     try {
       const out = await counterSignLoan(req.body?.tx_json ?? {})
       if (out.result_code === 'tesSUCCESS' && out.loan_id) {
@@ -35,13 +36,13 @@ export default async function superVaultRoutes(app) {
   })
 
   /** Redeem the deployment account's shares in one sub-fund. */
-  app.post('/api/super-vaults/:vaultId/allocations/:subVaultId/withdraw', async (req, reply) => {
+  app.post('/api/super-vaults/:vaultId/allocations/:subVaultId/withdraw', { preHandler: requireProof((req) => service.getSuperVault(req.params.vaultId)?.curator_address) }, async (req, reply) => {
     try { return reply.send(await withdrawFromVault(req.params.subVaultId, req.body?.shares)) }
     catch (e) { return reply.code(400).send({ errors: [e.message] }) }
   })
 
   /** Repay the curator loan from the deployment account. */
-  app.post('/api/super-vaults/:vaultId/repay', async (req, reply) => {
+  app.post('/api/super-vaults/:vaultId/repay', { preHandler: requireProof((req) => service.getSuperVault(req.params.vaultId)?.curator_address) }, async (req, reply) => {
     const sv = service.getSuperVault(req.params.vaultId)
     if (!sv?.loan_id) return reply.code(400).send({ errors: ['This super vault has no loan.'] })
     try { return reply.send(await repayLoan(sv.loan_id, req.body?.amount)) }
@@ -49,7 +50,7 @@ export default async function superVaultRoutes(app) {
   })
 
   /** Fund one allocation from the deployment account. */
-  app.post('/api/super-vaults/:vaultId/allocations/:subVaultId/deposit', async (req, reply) => {
+  app.post('/api/super-vaults/:vaultId/allocations/:subVaultId/deposit', { preHandler: requireProof((req) => service.getSuperVault(req.params.vaultId)?.curator_address) }, async (req, reply) => {
     try {
       const out = await depositToVault(req.params.subVaultId, req.body?.amount)
       if (out.result_code === 'tesSUCCESS') {
@@ -69,12 +70,12 @@ export default async function superVaultRoutes(app) {
     return found ? reply.send(found) : reply.code(404).send({ errors: ['Super vault not found.'] })
   })
 
-  app.post('/api/super-vaults', async (req, reply) =>
-    send(reply, service.createSuperVault(req.body ?? {}), 201))
+  app.post('/api/super-vaults', { preHandler: requireProof((req) => req.body?.curator_address) },
+    async (req, reply) => send(reply, service.createSuperVault(req.body ?? {}), 201))
 
-  app.post('/api/super-vaults/:vaultId/deploy', async (req, reply) =>
+  app.post('/api/super-vaults/:vaultId/deploy', { preHandler: requireProof((req) => service.getSuperVault(req.params.vaultId)?.curator_address) }, async (req, reply) =>
     send(reply, service.markDeployed(req.params.vaultId, req.body?.loan_id)))
 
-  app.post('/api/super-vaults/:vaultId/allocations/:subVaultId/funded', async (req, reply) =>
+  app.post('/api/super-vaults/:vaultId/allocations/:subVaultId/funded', { preHandler: requireProof((req) => service.getSuperVault(req.params.vaultId)?.curator_address) }, async (req, reply) =>
     send(reply, service.markAllocationFunded(req.params.vaultId, req.params.subVaultId, req.body?.tx_hash)))
 }

@@ -18,7 +18,7 @@ export default function CreateSuperVault({ session, address, company, candidates
   const [f, setF] = useState({
     name: '', strategy: '', deployment: '',
     subscriptionAt: inMinutes(5), loanMaturityAt: inMinutes(40), redemptionAt: inMinutes(55),
-    cap: '5000',
+    cap: '5000', rate: '5',
   })
   const [draft] = useState(() => takeRelaunch('super'))
   const [allocations, setAllocations] = useState(() => draft?.allocations ?? [])
@@ -67,6 +67,8 @@ export default function CreateSuperVault({ session, address, company, candidates
       ? ['The curator loan must mature before the super vault redeems.'] : []),
     ...((dates.redemptionMs - dates.subscriptionMs) / 1000 < 180
       ? ['Investment period must be at least 3 minutes.'] : []),
+    ...(Number(f.rate) < 0 || Number(f.rate) > 10
+      ? ['Rate must be between 0 and 10% — the ledger caps InterestRate at 100000 (10% annual).'] : []),
     ...weightErrors(allocations),
   ], [f, allocations, address, dates])
 
@@ -112,6 +114,7 @@ export default function CreateSuperVault({ session, address, company, candidates
         subscription_date: dates.subscription,
         redemption_date: dates.redemption,
         loan_maturity: dates.loanMaturity,
+        interest_rate: Math.round(Number(f.rate) * 1000),
         allocations,
       })
       setSteps((p) => [...p, { label: 'Allocation plan saved', state: 'info',
@@ -158,6 +161,10 @@ export default function CreateSuperVault({ session, address, company, candidates
                          value={f.redemptionAt} onChange={set('redemptionAt')} />
           <Field label="Target raise (XRP)">
             <TextInput type="number" min="1" value={f.cap} onChange={set('cap')} />
+          </Field>
+          <Field label="Rate paid to depositors (%)"
+                 hint="What the fund pays for the capital. You keep whatever the sub-funds earn above it, and cover any shortfall.">
+            <TextInput type="number" min="0" max="10" step="0.001" value={f.rate} onChange={set('rate')} />
           </Field>
         </div>
         <div className="timeline">

@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Client } from 'xrpl'
-import { startPairing, restoreSession, disconnect, accountOf, allSessions, getClient, CHAIN } from './wallet.js'
-import CreateVault from './components/CreateVault.jsx'
-import Invest from './components/vaults/Invest.jsx'
+import { startPairing, restoreSession, disconnect, accountOf, allSessions, getClient, signTransaction, CHAIN } from './wallet.js'
+import { setProofSigner, setProofListener, clearAuthSession } from './lib/api.js'
 import Borrower from './components/Borrower.jsx'
-import MyVaults from './components/vaults/MyVaults.jsx'
+import Funds from './components/Funds.jsx'
+import Manage from './components/Manage.jsx'
 import Positions from './components/vaults/Positions.jsx'
-import Marketplace from './components/market/Marketplace.jsx'
 import Onboarding from './components/onboarding/Onboarding.jsx'
 import CompanyForm from './components/onboarding/CompanyForm.jsx'
 import UserForm from './components/onboarding/UserForm.jsx'
 import { useProfile } from './hooks/useProfile.js'
 import DemoClock from './components/ui/DemoClock.jsx'
 import ErrorBoundary from './components/ui/ErrorBoundary.jsx'
+import Landing from './components/Landing.jsx'
 
 const WSS = 'wss://s.devnet.rippletest.net:51233/'
 const EXPLORER = 'https://devnet.xrpl.org'
@@ -22,26 +22,33 @@ const EXPLORER = 'https://devnet.xrpl.org'
  * company can still invest: a curator allocating across other funds is the
  * whole super-vault idea, so 'Invest' is not investor-only.
  */
+/**
+ * Four or five destinations, not seven.
+ *
+ * Invest and Marketplace are the primary and secondary market for the same asset,
+ * so they live together under Funds. Issue and My vaults are both fund management,
+ * so they live together under Manage.
+ */
 const TABS_BY_ROLE = {
   company: [
-    { id: 'broker', label: 'Issue a fund' },
-    { id: 'myvaults', label: 'My vaults' },
-    { id: 'depositor', label: 'Invest' },
-    { id: 'positions', label: 'My positions' },
-    { id: 'market', label: 'Marketplace' },
+    { id: 'funds', label: 'Funds' },
+    { id: 'positions', label: 'Portfolio' },
+    { id: 'manage', label: 'Manage' },
     { id: 'borrower', label: 'Borrow' },
-    { id: 'profile', label: 'Company profile' },
+    { id: 'profile', label: 'Profile' },
   ],
   user: [
-    { id: 'depositor', label: 'Invest' },
-    { id: 'positions', label: 'My positions' },
-    { id: 'market', label: 'Marketplace' },
-    { id: 'profile', label: 'My profile' },
+    { id: 'funds', label: 'Funds' },
+    { id: 'positions', label: 'Portfolio' },
+    { id: 'profile', label: 'Profile' },
   ],
 }
 
 const savedProjectId = () =>
   import.meta.env.VITE_WC_PROJECT_ID || localStorage.getItem('wc_project_id') || ''
+
+/** Only ask for it when the build has none: it is deployment config, not user input. */
+const NEEDS_PROJECT_ID = !import.meta.env.VITE_WC_PROJECT_ID
 
 export default function App() {
   const [projectId, setProjectId] = useState(savedProjectId)
@@ -55,6 +62,15 @@ export default function App() {
   const [tab, setTab] = useState(null)
 
   const address = accountOf(session)
+
+  // The API needs proof of key control for anything that moves value. Signing
+  // happens through the connected wallet, with submit:false so nothing lands.
+  const [awaitingSignature, setAwaitingSignature] = useState(false)
+  useEffect(() => {
+    setProofSigner(session ? (tx) => signTransaction(session, tx, { submit: false }) : null)
+    setProofListener(setAwaitingSignature)
+    clearAuthSession()   // a different wallet must sign for itself
+  }, [session, address])
   const { loading: profileLoading, role, profile, error: profileError, refresh: refreshProfile } = useProfile(address)
   const tabs = TABS_BY_ROLE[role] ?? []
   const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id
@@ -132,24 +148,40 @@ export default function App() {
       </header>
 
       {!session ? (
-        <section className="card">
-          <h2>Connect wallet</h2>
-          <label>
-            WalletConnect project ID
-            <input value={projectId} onChange={(e) => setProjectId(e.target.value.trim())}
-                   placeholder="from cloud.reown.com" spellCheck={false} />
-          </label>
-          <button className="primary" onClick={connect} disabled={busy || !projectId}>
-            {busy ? 'Working…' : 'Connect'}
-          </button>
-          {uri && (
-            <div className="uri">
-              <p>Copy into the XRPL Dev Wallet popup → the WalletConnect icon → <b>Connect</b>:</p>
-              <textarea readOnly value={uri} rows={4} onFocus={(e) => e.target.select()} />
-              <button className="ghost" onClick={() => navigator.clipboard.writeText(uri)}>Copy URI</button>
-            </div>
-          )}
-        </section>
+        <Landing>
+          <section className="card connect">
+            <h2>Get started</h2>
+            <p className="lede">
+              Connect the XRPL Dev Wallet to browse funds, invest, or launch one of your own.
+            </p>
+
+            {NEEDS_PROJECT_ID && (
+              <label className="field">
+                <span className="field-label">WalletConnect project ID</span>
+                <input value={projectId} onChange={(e) => setProjectId(e.target.value.trim())}
+                       placeholder="free at cloud.reown.com" spellCheck={false} />
+                <small className="field-hint">
+                  Set <code>VITE_WC_PROJECT_ID</code> in <code>web/.env</code> to skip this.
+                </small>
+              </label>
+            )}
+
+            <button className="primary full" onClick={connect} disabled={busy || !projectId}>
+              {busy ? 'Waiting for your wallet…' : 'Connect wallet'}
+            </button>
+
+            {uri && (
+              <div className="uri">
+                <p>
+                  In the wallet extension, open the <b>WalletConnect</b> icon, choose
+                  <b> Connect via WalletConnect</b>, and paste this:
+                </p>
+                <textarea readOnly value={uri} rows={3} onFocus={(e) => e.target.select()} />
+                <button className="ghost" onClick={() => navigator.clipboard.writeText(uri)}>Copy link</button>
+              </div>
+            )}
+          </section>
+        </Landing>
       ) : (
         <>
           {pairing && uri && (
@@ -188,11 +220,12 @@ export default function App() {
                 ))}
               </nav>
               <ErrorBoundary key={activeTab}>
-              {activeTab === 'broker' && <CreateVault key={address} session={session} address={address} company={profile} />}
-              {activeTab === 'myvaults' && <MyVaults key={address} session={session} address={address} company={profile} onGoToInvest={() => setTab('depositor')} />}
-              {activeTab === 'depositor' && <Invest key={address} session={session} address={address} />}
+              {activeTab === 'funds' && <Funds key={address} session={session} address={address} />}
               {activeTab === 'positions' && <Positions key={address} session={session} address={address} />}
-              {activeTab === 'market' && <Marketplace key={address} session={session} address={address} />}
+              {activeTab === 'manage' && (
+                <Manage key={address} session={session} address={address} company={profile}
+                        onGoToFunds={() => setTab('funds')} />
+              )}
               {activeTab === 'borrower' && <Borrower key={address} session={session} address={address} />}
               {activeTab === 'profile' && (role === 'company'
                 ? <CompanyForm address={address} existing={profile} onDone={refreshProfile} />
@@ -201,6 +234,19 @@ export default function App() {
             </>
           )}
         </>
+      )}
+
+      {awaitingSignature && (
+        <div className="signbar" role="status">
+          <span className="signbar-dot" />
+          <div>
+            <b>Sign in with your wallet</b>
+            <small>
+              Open the XRPL Dev Wallet extension and approve. It appears as an AccountSet, but it is
+              never submitted — it only proves you control this account. Once per session.
+            </small>
+          </div>
+        </div>
       )}
 
       {status && <p className="status">{status}</p>}

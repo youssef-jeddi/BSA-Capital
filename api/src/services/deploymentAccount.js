@@ -37,6 +37,32 @@ async function withClient(fn) {
 }
 
 /**
+ * Submit without throwing away a transaction that already applied.
+ *
+ * submitAndWait can throw after the ledger accepted the transaction — a dropped
+ * socket, an expired LastLedgerSequence. Assuming failure there is how value gets
+ * stranded, so the hash is fixed at signing and the ledger is asked what happened.
+ */
+async function submitSafely(client, wallet, tx) {
+  const signed = wallet.sign(await client.autofill(tx))
+  try {
+    const res = await client.submitAndWait(signed.tx_blob)
+    return { code: res.result.meta?.TransactionResult, hash: res.result.hash, result: res.result }
+  } catch (e) {
+    for (let i = 0; i < 4; i += 1) {
+      try {
+        const r = (await client.request({ command: 'tx', transaction: signed.hash })).result
+        const code = (r.meta ?? r.metaData)?.TransactionResult
+        if (code) return { code, hash: signed.hash, result: r, recovered: true }
+      } catch { /* not validated yet */ }
+      await new Promise((res) => setTimeout(res, 2000))
+    }
+    const msg = e.data?.error_message ?? e.message
+    return { code: /\b(te[cflms][A-Z_]+)/.exec(msg)?.[1] ?? 'REJECTED', hash: signed.hash, error: msg }
+  }
+}
+
+/**
  * Add the counterparty signature to a half-signed LoanSet and submit it.
  * The SDK applies the CPT signing prefix that counterparty signatures require.
  */
@@ -69,12 +95,11 @@ export async function depositToVault(vaultId, amountDrops) {
   const wallet = xrpl.Wallet.fromSeed(account.seed)
 
   return withClient(async (client) => {
-    const prepared = await client.autofill({
+    const out = await submitSafely(client, wallet, {
       TransactionType: 'VaultDeposit', Account: wallet.address,
       VaultID: vaultId, Amount: String(amountDrops),
     })
-    const res = await client.submitAndWait(wallet.sign(prepared).tx_blob)
-    return { result_code: res.result.meta?.TransactionResult, hash: res.result.hash }
+    return { result_code: out.code, hash: out.hash, recovered: out.recovered }
   })
 }
 
@@ -85,12 +110,11 @@ export async function repayLoan(loanId, amountDrops) {
   const wallet = xrpl.Wallet.fromSeed(account.seed)
 
   return withClient(async (client) => {
-    const prepared = await client.autofill({
+    const out = await submitSafely(client, wallet, {
       TransactionType: 'LoanPay', Account: wallet.address,
       LoanID: loanId, Amount: String(amountDrops),
     })
-    const res = await client.submitAndWait(wallet.sign(prepared).tx_blob)
-    return { result_code: res.result.meta?.TransactionResult, hash: res.result.hash }
+    return { result_code: out.code, hash: out.hash, recovered: out.recovered }
   })
 }
 
@@ -107,12 +131,11 @@ export async function withdrawFromVault(vaultId, shares) {
       mptoken: { mpt_issuance_id: vault.ShareMPTID, account: wallet.address },
     })).result.node.MPTAmount
 
-    const prepared = await client.autofill({
+    const out = await submitSafely(client, wallet, {
       TransactionType: 'VaultWithdraw', Account: wallet.address, VaultID: vaultId,
       Amount: { mpt_issuance_id: vault.ShareMPTID, value: String(held) },
     })
-    const res = await client.submitAndWait(wallet.sign(prepared).tx_blob)
-    return { result_code: res.result.meta?.TransactionResult, hash: res.result.hash, shares: String(held) }
+    return { result_code: out.code, hash: out.hash, shares: String(held), recovered: out.recovered }
   })
 }
 

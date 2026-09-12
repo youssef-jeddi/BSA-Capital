@@ -58,7 +58,7 @@ export default function SellPanel({ position, session, address, onListed, onCanc
       const row = await createListing({
         vault_id: position.vault_id, shares: String(shares),
         ask_drops: xrpToDropsStr(askXrp), transfer_hash: res.hash,
-      })
+      }, address)
       settle({ state: 'ok', detail: `Listing ${row.id}` })
       onListed?.(row)
     } catch (e) {
