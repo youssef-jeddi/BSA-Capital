@@ -1,10 +1,13 @@
-import { useMemo, useState } from 'react'
-import { unixTimeToRippleTime, xrpToDrops, encodeMPTokenMetadata } from 'xrpl'
+import { useEffect, useMemo, useState } from 'react'
+import { xrpToDrops, encodeMPTokenMetadata } from 'xrpl'
 import { signTransaction } from '../../wallet.js'
 import Steps from '../Steps.jsx'
 import AllocationPlanner from './AllocationPlanner.jsx'
 import { Field, TextInput, ErrorList } from '../ui/Field.jsx'
-import { createSuperVault } from '../../lib/api.js'
+import DateTimeField from '../ui/DateTimeField.jsx'
+import { describeGap, fromInputValue, inMinutes, toRipple } from '../../lib/schedule.js'
+import { createSuperVault, getDeploymentAccount } from '../../lib/api.js'
+import { takeRelaunch } from '../../lib/relaunch.js'
 import { createdEntry } from '../../lib/vault.js'
 import { weightErrors } from '../../lib/superVault.js'
 
@@ -14,35 +17,58 @@ const hex = (s) => Array.from(new TextEncoder().encode(s))
 export default function CreateSuperVault({ session, address, company, candidates, nowMs, onCreated, onCancel }) {
   const [f, setF] = useState({
     name: '', strategy: '', deployment: '',
-    subMinutes: '5', redMinutes: '40', loanMinutes: '30', cap: '5000',
+    subscriptionAt: inMinutes(5), loanMaturityAt: inMinutes(40), redemptionAt: inMinutes(55),
+    cap: '5000',
   })
-  const [allocations, setAllocations] = useState([])
+  const [draft] = useState(() => takeRelaunch('super'))
+  const [allocations, setAllocations] = useState(() => draft?.allocations ?? [])
   const [steps, setSteps] = useState([])
   const [busy, setBusy] = useState(false)
   const [serverErrors, setServerErrors] = useState([])
 
-  const set = (k) => (v) => setF((p) => ({ ...p, [k]: v }))
+  // Prefill from a relaunch draft, if the curator rolled a finished series forward.
+  useEffect(() => {
+    if (!draft) return
+    setF((p) => ({
+      ...p,
+      name: draft.name,
+      strategy: draft.strategy || draft.desc || '',
+      deployment: draft.deployment || p.deployment,
+      cap: draft.cap || p.cap,
+    }))
+  }, [draft])
 
-  const dates = useMemo(() => {
-    const t0 = Date.now()
-    return {
-      subscription: unixTimeToRippleTime(t0 + Number(f.subMinutes) * 60_000),
-      redemption: unixTimeToRippleTime(t0 + Number(f.redMinutes) * 60_000),
-      loanMaturity: unixTimeToRippleTime(t0 + Number(f.loanMinutes) * 60_000),
-      at: (m) => new Date(t0 + m * 60_000).toLocaleTimeString(),
-    }
-  }, [f.subMinutes, f.redMinutes, f.loanMinutes])
+  // Default to the stored Devnet test account so the demo needs no wallet switch.
+  useEffect(() => {
+    getDeploymentAccount()
+      .then((d) => d.configured && setF((p) => (p.deployment ? p : { ...p, deployment: d.address })))
+      .catch(() => {})
+  }, [])
+
+  const set = (k) => (v) => setF((p) => ({ ...p, [k]: v?.target ? v.target.value : v }))
+
+  const dates = useMemo(() => ({
+    subscription: toRipple(f.subscriptionAt),
+    redemption: toRipple(f.redemptionAt),
+    loanMaturity: toRipple(f.loanMaturityAt),
+    subscriptionMs: fromInputValue(f.subscriptionAt),
+    redemptionMs: fromInputValue(f.redemptionAt),
+    loanMaturityMs: fromInputValue(f.loanMaturityAt),
+  }), [f.subscriptionAt, f.redemptionAt, f.loanMaturityAt])
+  const at = (ms) => (ms == null ? '—' : new Date(ms).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))
 
   const localErrors = useMemo(() => [
     ...(f.name.trim() ? [] : ['Name is required.']),
     ...(f.deployment.trim() ? [] : ['A deployment account is required.']),
     ...(f.deployment.trim() === address ? ['The deployment account must differ from this curator account.'] : []),
-    ...(Number(f.loanMinutes) >= Number(f.redMinutes)
+    ...(dates.loanMaturityMs == null || dates.redemptionMs == null || dates.subscriptionMs == null
+      ? ['Choose all three phase dates.'] : []),
+    ...(dates.loanMaturityMs >= dates.redemptionMs
       ? ['The curator loan must mature before the super vault redeems.'] : []),
-    ...(Number(f.redMinutes) - Number(f.subMinutes) < 3
+    ...((dates.redemptionMs - dates.subscriptionMs) / 1000 < 180
       ? ['Investment period must be at least 3 minutes.'] : []),
     ...weightErrors(allocations),
-  ], [f, allocations, address])
+  ], [f, allocations, address, dates])
 
   async function run(label, tx) {
     setSteps((p) => [...p, { label, state: 'pending' }])
@@ -124,27 +150,37 @@ export default function CreateSuperVault({ session, address, company, candidates
       <fieldset>
         <legend>Lifecycle</legend>
         <div className="grid2">
-          <Field label="Subscription ends in (min)"><TextInput type="number" min="1" value={f.subMinutes} onChange={set('subMinutes')} /></Field>
-          <Field label="Redemption opens in (min)"><TextInput type="number" min="4" value={f.redMinutes} onChange={set('redMinutes')} /></Field>
-          <Field label="Curator loan matures in (min)" hint="Must be before redemption."><TextInput type="number" min="3" value={f.loanMinutes} onChange={set('loanMinutes')} /></Field>
-          <Field label="Target raise (XRP)"><TextInput type="number" min="1" value={f.cap} onChange={set('cap')} /></Field>
+          <DateTimeField label="Subscription closes" required
+                         value={f.subscriptionAt} onChange={set('subscriptionAt')} />
+          <DateTimeField label="Curator loan matures" required hint="Must be before redemption."
+                         value={f.loanMaturityAt} onChange={set('loanMaturityAt')} />
+          <DateTimeField label="Redemption opens" required
+                         value={f.redemptionAt} onChange={set('redemptionAt')} />
+          <Field label="Target raise (XRP)">
+            <TextInput type="number" min="1" value={f.cap} onChange={set('cap')} />
+          </Field>
         </div>
         <div className="timeline">
-          <span><b>Subscription</b> now → {dates.at(Number(f.subMinutes))}</span>
-          <span><b>Deploy window</b> {dates.at(Number(f.subMinutes))} → {dates.at(Number(f.loanMinutes))}</span>
-          <span><b>Loan matures</b> {dates.at(Number(f.loanMinutes))}</span>
-          <span><b>Redemption</b> from {dates.at(Number(f.redMinutes))}</span>
+          <span><b>Subscription</b> now &rarr; {at(dates.subscriptionMs)}</span>
+          <span><b>Deploy window</b> {at(dates.subscriptionMs)} &rarr; {at(dates.loanMaturityMs)}</span>
+          <span><b>Loan matures</b> {at(dates.loanMaturityMs)}</span>
+          <span><b>Redemption</b> from {at(dates.redemptionMs)}</span>
+          <span className="dim">
+            Investment period {describeGap(f.subscriptionAt, f.redemptionAt)?.text ?? '—'}
+          </span>
         </div>
       </fieldset>
 
       <fieldset>
         <legend>Allocation</legend>
         <p className="dim">
-          Funds redeeming after the curator loan matures are disabled: their capital would
-          still be locked when the super vault owes its depositors.
+          Two rules disable a fund here. It must still be raising when you deploy, which happens
+          after this super vault stops raising. And it must redeem before the curator loan matures,
+          or its capital is still locked when the super vault owes its depositors.
         </p>
         <AllocationPlanner candidates={candidates} allocations={allocations}
-                           onChange={setAllocations} ceiling={dates.loanMaturity} nowMs={nowMs} />
+                           onChange={setAllocations} ceiling={dates.loanMaturity}
+                           superSubscription={dates.subscription} nowMs={nowMs} />
       </fieldset>
 
       <ErrorList errors={[...localErrors, ...serverErrors]} />

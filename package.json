@@ -7,7 +7,9 @@
     "web": "npm --prefix web run dev",
     "spike": "node scripts/01-spike.mjs",
     "lifecycle": "node scripts/03-loan-lifecycle.mjs",
-    "seed": "node scripts/04-seed-funds.mjs"
+    "seed": "node scripts/04-seed-funds.mjs",
+    "supervault-account": "node scripts/05-supervault-account.mjs",
+    "e2e": "node scripts/06-supervault-e2e.mjs"
   },
   "dependencies": {
     "xrpl": "5.2.0-beta.1"

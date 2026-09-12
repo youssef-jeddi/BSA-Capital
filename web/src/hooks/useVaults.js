@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { listVaults } from '../lib/api.js'
 import { fetchVault, ledgerNowMs, phaseOf, pricePerShare } from '../lib/ledger.js'
+import { useBoundaryRefresh } from './useClock.js'
 
 /**
  * Joins the off-chain vault index with live ledger state. The API knows which
@@ -42,6 +43,11 @@ export function useVaults({ company, pollMs = 8000 } = {}) {
     const t = setInterval(refresh, pollMs)
     return () => clearInterval(t)
   }, [refresh, pollMs])
+
+  // A countdown reaching zero means the phase changed: refetch immediately
+  // rather than showing a stale phase until the next poll.
+  const boundaries = useMemo(() => state.vaults.map((v) => v.phase?.endsAt).filter(Boolean), [state.vaults])
+  useBoundaryRefresh(boundaries, refresh, state.nowMs)
 
   return { ...state, refresh }
 }

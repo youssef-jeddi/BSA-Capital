@@ -5,7 +5,7 @@ import { countdown } from '../../lib/ledger.js'
  * Pick sub-vaults and set weights. Flags any fund that redeems too late for the
  * cascade, which is the one rule the protocol will not enforce for us.
  */
-export default function AllocationPlanner({ candidates, allocations, onChange, ceiling, nowMs }) {
+export default function AllocationPlanner({ candidates, allocations, onChange, ceiling, superSubscription, nowMs }) {
   const byId = new Map(allocations.map((a) => [a.sub_vault_id, a]))
   const total = allocations.reduce((s, a) => s + a.target_bps, 0)
 
@@ -46,10 +46,15 @@ export default function AllocationPlanner({ candidates, allocations, onChange, c
         {candidates.map((v) => {
           const picked = byId.get(v.vault_id)
           const late = ceiling != null && v.redemption_date != null && v.redemption_date > ceiling
+          // Capital only arrives after this super vault stops raising, so a fund
+          // that closes earlier can never be funded.
+          const closesFirst = superSubscription != null && v.subscription_date != null
+            && v.subscription_date <= superSubscription
+          const blocked = late || closesFirst
           return (
-            <div key={v.vault_id} className={late ? 'allocrow late' : 'allocrow'}>
+            <div key={v.vault_id} className={blocked ? 'allocrow late' : 'allocrow'}>
               <label className="allocpick">
-                <input type="checkbox" checked={!!picked} onChange={() => toggle(v)} disabled={late} />
+                <input type="checkbox" checked={!!picked} onChange={() => toggle(v)} disabled={blocked} />
                 <span>
                   <b>{v.name}</b>
                   <small>
@@ -62,6 +67,8 @@ export default function AllocationPlanner({ candidates, allocations, onChange, c
 
               {late ? (
                 <span className="late-tag">redeems too late</span>
+              ) : closesFirst ? (
+                <span className="late-tag">closes before you finish raising</span>
               ) : picked ? (
                 <span className="allocweight">
                   <input type="number" min="1" max="100" step="1"

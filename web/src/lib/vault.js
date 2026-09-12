@@ -6,9 +6,9 @@
  * lets the form fail fast instead of at signing time.
  */
 import {
-  xrpToDrops, unixTimeToRippleTime, VaultCreateFlags,
-  encodeMPTokenMetadata, validateMPTokenMetadata,
+  xrpToDrops, VaultCreateFlags, encodeMPTokenMetadata, validateMPTokenMetadata,
 } from 'xrpl'
+import { fromInputValue, toRipple } from './schedule.js'
 
 export const MIN_INVESTMENT_SECONDS = 180   // RedemptionDate - SubscriptionDate floor
 export const VAULT_DATA_MAX_BYTES = 256
@@ -41,14 +41,13 @@ export function amountOf(f, value) {
   return { mpt_issuance_id: f.mptIssuanceId, value: String(value) }
 }
 
-/** Demo lifecycles are expressed in minutes from now, then converted to Ripple time. */
+/** Phase boundaries are absolute dates chosen in the form. */
 export function lifecycleDates(f) {
-  const now = Date.now()
   return {
-    subscriptionUnix: now + Number(f.subMinutes) * 60_000,
-    redemptionUnix: now + Number(f.redMinutes) * 60_000,
-    SubscriptionDate: unixTimeToRippleTime(now + Number(f.subMinutes) * 60_000),
-    RedemptionDate: unixTimeToRippleTime(now + Number(f.redMinutes) * 60_000),
+    subscriptionUnix: fromInputValue(f.subscriptionAt),
+    redemptionUnix: fromInputValue(f.redemptionAt),
+    SubscriptionDate: toRipple(f.subscriptionAt),
+    RedemptionDate: toRipple(f.redemptionAt),
   }
 }
 
@@ -66,11 +65,17 @@ export function validateForm(f) {
   if (f.domainId && !f.private) errs.push('DomainID may only be set on a private vault.')
   if (f.domainId && !/^[0-9A-Fa-f]{64}$/u.test(f.domainId)) errs.push('DomainID must be 64 hex characters.')
 
-  const gap = (Number(f.redMinutes) - Number(f.subMinutes)) * 60
-  if (!(gap >= MIN_INVESTMENT_SECONDS)) {
-    errs.push(`Investment period must be at least ${MIN_INVESTMENT_SECONDS}s (3 min). Currently ${Math.round(gap)}s.`)
+  const sub = fromInputValue(f.subscriptionAt)
+  const red = fromInputValue(f.redemptionAt)
+  if (sub == null) errs.push('Choose when subscription closes.')
+  if (red == null) errs.push('Choose when redemption opens.')
+  if (sub != null && sub <= Date.now()) errs.push('Subscription must close in the future.')
+  if (sub != null && red != null) {
+    const gap = Math.round((red - sub) / 1000)
+    if (gap < MIN_INVESTMENT_SECONDS) {
+      errs.push(`Investment period must be at least ${MIN_INVESTMENT_SECONDS}s (3 min). Currently ${gap}s.`)
+    }
   }
-  if (Number(f.subMinutes) <= 0) errs.push('Subscription must end in the future.')
 
   // Both-or-neither, enforced by the SDK.
   const hasMin = f.coverRateMin !== '' && Number(f.coverRateMin) !== 0

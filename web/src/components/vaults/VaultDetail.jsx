@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react'
 import Steps from '../Steps.jsx'
 import PhaseBadge from './PhaseBadge.jsx'
 import { useVaultActions } from '../../hooks/useVaultActions.js'
+import { draftFromVault, stageRelaunch } from '../../lib/relaunch.js'
+import AllocationBreakdown from '../super/AllocationBreakdown.jsx'
 import {
   PHASE_RULES, assetToDisplay, fetchPosition, isXrpVault,
 } from '../../lib/ledger.js'
 
 const EXPLORER = 'https://devnet.xrpl.org'
 
-export default function VaultDetail({ entry, nowMs, session, address, onBack, onSettled }) {
+export default function VaultDetail({ entry, nowMs, session, address, onBack, onSettled, onRelaunch }) {
   const { vault, issuance, phase, pps } = entry
   const [position, setPosition] = useState(null)
   const [amount, setAmount] = useState('')
@@ -36,6 +38,7 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
   }
 
   const rules = PHASE_RULES[phase.phase]
+  const nextName = draftFromVault(entry).name
   const unit = isXrpVault(vault) ? 'XRP' : (vault.Asset.currency ?? 'units')
   const shares = Number(position?.MPTAmount ?? 0)
   const blocked = mode === 'shares' ? !rules.withdraw : !rules.deposit
@@ -64,6 +67,17 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
         <div><span>Your value</span>
              <b>{pps == null || !shares ? '—' : `${assetToDisplay(vault, Math.floor(shares * pps))} ${unit}`}</b></div>
       </div>
+
+      {entry.kind === 'super' && (
+        <fieldset>
+          <legend>Holdings</legend>
+          <p className="dim">
+            This is a fund-of-funds: your deposit is spread across the funds below by the curator,
+            {entry.curator_name ? ` ${entry.curator_name}` : ''}. One position, several managers.
+          </p>
+          <AllocationBreakdown positions={entry.positions} />
+        </fieldset>
+      )}
 
       <fieldset>
         <legend>{rules.deposit ? 'Deposit' : 'Your position'}</legend>
@@ -107,6 +121,20 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
       </fieldset>
 
       <Steps steps={steps} />
+
+      {onRelaunch && entry.company_address === address && (
+        <fieldset>
+          <legend>Next series</legend>
+          <p className="dim">
+            A close-ended vault cannot be restarted: Redemption is terminal and the phase dates are
+            immutable. Launching the next series is how a fund manager continues, and this carries
+            everything across except the dates.
+          </p>
+          <button className="ghost" onClick={() => { stageRelaunch(draftFromVault(entry)); onRelaunch(entry) }}>
+            Relaunch as {nextName}
+          </button>
+        </fieldset>
+      )}
 
       <p className="dim" style={{ marginTop: 16 }}>
         <a href={`${EXPLORER}/accounts/${vault.Account}`} target="_blank" rel="noreferrer">Vault account</a>

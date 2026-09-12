@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { listSuperVaults } from '../lib/api.js'
 import { fetchPosition, fetchVault, ledgerNowMs, phaseOf, pricePerShare } from '../lib/ledger.js'
+import { useBoundaryRefresh } from './useClock.js'
 
 /**
  * Super vault records joined with live ledger state, both for the super vault
@@ -22,7 +23,11 @@ async function enrich(record, nowMs) {
       return {
         ...a, vault, issuance, pps, shares,
         phase: phaseOf(vault, nowMs),
-        value: pps == null ? null : Math.floor(shares * pps),
+        // Nothing deposited yet is a value of zero. Only a position we cannot
+        // read is genuinely unvalued, and an empty sub-fund has no price per
+        // share at all (zero shares outstanding), which is not an error.
+        value: shares === 0 ? 0 : (pps == null ? null : Math.floor(shares * pps)),
+        fundable: null,
         lastLedger: vault.PreviousTxnLgrSeq ?? null,
       }
     } catch {
@@ -51,6 +56,11 @@ export function useSuperVaults({ curator, pollMs = 8000 } = {}) {
     const t = setInterval(refresh, pollMs)
     return () => clearInterval(t)
   }, [refresh, pollMs])
+
+  // A countdown reaching zero means the phase changed: refetch immediately
+  // rather than showing a stale phase until the next poll.
+  const boundaries = useMemo(() => state.superVaults.map((s) => s.own?.phase?.endsAt).filter(Boolean), [state.superVaults])
+  useBoundaryRefresh(boundaries, refresh, state.nowMs)
 
   return { ...state, refresh }
 }

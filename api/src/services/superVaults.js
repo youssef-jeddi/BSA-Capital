@@ -3,7 +3,7 @@ import * as supers from '../repositories/superVaults.js'
 import * as vaults from '../repositories/vaults.js'
 import * as companies from '../repositories/companies.js'
 import { validateAddress, collect } from '../validation/profiles.js'
-import { validateAllocations, validateMaturityCascade } from '../validation/allocations.js'
+import { validateAllocations, validateMaturityCascade, validateFundingWindow } from '../validation/allocations.js'
 
 const fail = (status, ...errors) => ({ ok: false, status, errors: errors.flat() })
 const ok = (data) => ({ ok: true, data })
@@ -45,6 +45,12 @@ export function createSuperVault(input) {
   })
   if (cascade.length) return fail(400, cascade)
 
+  const window = validateFundingWindow({
+    superSubscription: input.subscription_date ?? null,
+    subVaults,
+  })
+  if (window.length) return fail(400, window)
+
   if (supers.findById(input.vault_id.toUpperCase())) {
     return ok(supers.findById(input.vault_id.toUpperCase()))
   }
@@ -58,6 +64,7 @@ export function createSuperVault(input) {
     strategy: clean(input.strategy),
     subscription_date: input.subscription_date ?? null,
     redemption_date: input.redemption_date ?? null,
+    loan_maturity: input.loan_maturity ?? null,
   }, allocations.map((a) => ({
     sub_vault_id: a.sub_vault_id.toUpperCase(),
     target_bps: Number(a.target_bps),

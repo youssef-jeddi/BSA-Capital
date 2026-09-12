@@ -7,11 +7,17 @@ export default function VaultCard({ entry, nowMs, onOpen }) {
   const open = phase?.phase === 'Subscription'
 
   return (
-    <button className="vaultcard" onClick={() => onOpen(entry)}>
+    <button className={entry.kind === 'super' ? 'vaultcard is-super' : 'vaultcard'}
+            onClick={() => onOpen(entry)}>
       <div className="vaultcard-head">
         <div>
           <b>{entry.name}</b>
-          <div className="dim">{entry.company_name} · {entry.company_activity}</div>
+          {entry.kind === 'super' && <span className="tag super">Super vault · fund-of-funds</span>}
+          <div className="dim">
+            {entry.company_name} · {entry.company_activity}
+            {entry.kind === 'super' && entry.positions &&
+              ` · ${entry.positions.length} funds`}
+          </div>
         </div>
         <PhaseBadge phase={phase} nowMs={nowMs} />
       </div>

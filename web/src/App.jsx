@@ -4,11 +4,14 @@ import { startPairing, restoreSession, disconnect, accountOf, allSessions, getCl
 import CreateVault from './components/CreateVault.jsx'
 import Invest from './components/vaults/Invest.jsx'
 import Borrower from './components/Borrower.jsx'
-import SuperVaults from './components/super/SuperVaults.jsx'
+import MyVaults from './components/vaults/MyVaults.jsx'
+import Positions from './components/vaults/Positions.jsx'
 import Onboarding from './components/onboarding/Onboarding.jsx'
 import CompanyForm from './components/onboarding/CompanyForm.jsx'
 import UserForm from './components/onboarding/UserForm.jsx'
 import { useProfile } from './hooks/useProfile.js'
+import DemoClock from './components/ui/DemoClock.jsx'
+import ErrorBoundary from './components/ui/ErrorBoundary.jsx'
 
 const WSS = 'wss://s.devnet.rippletest.net:51233/'
 const EXPLORER = 'https://devnet.xrpl.org'
@@ -21,14 +24,15 @@ const EXPLORER = 'https://devnet.xrpl.org'
 const TABS_BY_ROLE = {
   company: [
     { id: 'broker', label: 'Issue a fund' },
+    { id: 'myvaults', label: 'My vaults' },
     { id: 'depositor', label: 'Invest' },
+    { id: 'positions', label: 'My positions' },
     { id: 'borrower', label: 'Borrow' },
-    { id: 'super', label: 'Super vaults' },
     { id: 'profile', label: 'Company profile' },
   ],
   user: [
     { id: 'depositor', label: 'Invest' },
-    { id: 'super', label: 'Super vaults' },
+    { id: 'positions', label: 'My positions' },
     { id: 'profile', label: 'My profile' },
   ],
 }
@@ -171,6 +175,7 @@ export default function App() {
             <Onboarding address={address} onDone={refreshProfile} />
           ) : (
             <>
+              <DemoClock />
               <nav className="tabs">
                 {tabs.map((t) => (
                   <button key={t.id} className={activeTab === t.id ? 'tab on' : 'tab'}
@@ -179,13 +184,16 @@ export default function App() {
                   </button>
                 ))}
               </nav>
+              <ErrorBoundary key={activeTab}>
               {activeTab === 'broker' && <CreateVault key={address} session={session} address={address} company={profile} />}
+              {activeTab === 'myvaults' && <MyVaults key={address} session={session} address={address} company={profile} onGoToInvest={() => setTab('depositor')} />}
               {activeTab === 'depositor' && <Invest key={address} session={session} address={address} />}
+              {activeTab === 'positions' && <Positions key={address} session={session} address={address} />}
               {activeTab === 'borrower' && <Borrower key={address} session={session} address={address} />}
-              {activeTab === 'super' && <SuperVaults key={address} session={session} address={address} company={profile} role={role} />}
               {activeTab === 'profile' && (role === 'company'
                 ? <CompanyForm address={address} existing={profile} onDone={refreshProfile} />
                 : <UserForm address={address} existing={profile} onDone={refreshProfile} />)}
+              </ErrorBoundary>
             </>
           )}
         </>

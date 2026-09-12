@@ -46,3 +46,15 @@ export const createSuperVault = (data) => post('/super-vaults', data)
 export const markSuperVaultDeployed = (id, loan_id) => post(`/super-vaults/${id}/deploy`, { loan_id })
 export const markAllocationFunded = (id, subId, tx_hash) =>
   post(`/super-vaults/${id}/allocations/${subId}/funded`, { tx_hash })
+
+export const getDeploymentAccount = () => request('/deployment-account')
+export const counterSignWithDeployer = (superVaultId, tx_json) =>
+  post(`/super-vaults/${superVaultId}/counter-sign`, { tx_json })
+export const depositAsDeployer = (superVaultId, subVaultId, amount) =>
+  post(`/super-vaults/${superVaultId}/allocations/${subVaultId}/deposit`, { amount })
+
+export const getUnwindState = (superVaultId) => request(`/super-vaults/${superVaultId}/unwind`)
+export const repayCuratorLoan = (superVaultId, amount) =>
+  post(`/super-vaults/${superVaultId}/repay`, { amount })
+export const withdrawFromSubFund = (superVaultId, subVaultId, shares) =>
+  post(`/super-vaults/${superVaultId}/allocations/${subVaultId}/withdraw`, { shares })

@@ -1,8 +1,11 @@
 import { useCallback, useState } from 'react'
 import { signTransaction, signAsCounterparty } from '../wallet.js'
-import { markSuperVaultDeployed, markAllocationFunded } from '../lib/api.js'
+import {
+  markSuperVaultDeployed, markAllocationFunded,
+  counterSignWithDeployer, depositAsDeployer,
+} from '../lib/api.js'
 import { submitSigned } from '../lib/ledger.js'
-import { splitRaise } from '../lib/superVault.js'
+import { loanSchedule, splitRaise } from '../lib/superVault.js'
 import { clearPendingLoan, getPendingLoan, savePendingLoan } from '../lib/pendingLoans.js'
 
 const codeOf = (m) => /\b(te[cflms][A-Z_]+)/.exec(m)?.[1]
@@ -86,6 +89,120 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
     } finally { setBusy(false) }
   }
 
+  /**
+   * Counter-sign with the stored Devnet test account instead of switching
+   * wallets. The server holds that seed, so a demo is one button.
+   */
+  async function counterSignWithTestAccount() {
+    setBusy(true); setSteps([{ label: 'Counter-signing with the test account', state: 'pending' }])
+    try {
+      const held = getPendingLoan(entry.vault_id)
+      if (!held) throw new Error('No half-signed loan is waiting for this super vault.')
+      const out = await counterSignWithDeployer(entry.vault_id, held.txJson)
+      const ok = out.result_code === 'tesSUCCESS'
+      setSteps([{ label: 'LoanSet', state: ok ? 'ok' : 'fail', code: out.result_code,
+                  hash: out.hash, detail: out.loan_id ? `LoanID ${out.loan_id}` : undefined }])
+      if (ok) { clearPendingLoan(entry.vault_id); refreshPending(); onDone?.() }
+    } catch (e) {
+      setSteps([{ label: 'Counter-sign', state: 'fail', error: e.errors?.[0] ?? e.message }])
+    } finally { setBusy(false) }
+  }
+
+  /** Fund one allocation from the stored test account. */
+  async function fundWithTestAccount(position) {
+    setBusy(true); setSteps([{ label: `VaultDeposit → ${position.sub_vault_name}`, state: 'pending' }])
+    try {
+      const amount = splitRaise(entry, entry.positions)
+        .find((p) => p.sub_vault_id === position.sub_vault_id)?.amount
+      if (!amount || amount === '0') throw new Error('Nothing to allocate to this fund.')
+      const out = await depositAsDeployer(entry.vault_id, position.sub_vault_id, amount)
+      setSteps([{ label: `VaultDeposit → ${position.sub_vault_name}`,
+                  state: out.result_code === 'tesSUCCESS' ? 'ok' : 'fail',
+                  code: out.result_code, hash: out.hash }])
+      onDone?.()
+    } catch (e) {
+      setSteps([{ label: 'VaultDeposit', state: 'fail', error: e.errors?.[0] ?? e.message }])
+    } finally { setBusy(false) }
+  }
+
+  /**
+   * The whole deployment in one action.
+   *
+   * Only step 1 needs the curator's wallet: they are lending their own vault's
+   * money and must consent. Everything after is signed server-side by the
+   * deployment account, so the manager is not switching wallets mid-flow.
+   */
+  async function deployAll() {
+    setBusy(true)
+    const trail = []
+    const push = (step) => { trail.push(step); setSteps([...trail]) }
+    const settle = (patch) => { Object.assign(trail[trail.length - 1], patch); setSteps([...trail]) }
+
+    try {
+      // 1. Curator signs the loan from the super vault to the deployment account.
+      let held = getPendingLoan(entry.vault_id)
+      if (!held && entry.status !== 'deployed') {
+        push({ label: '1 · Curator signs the loan', state: 'pending' })
+        const raised = Number(entry.own?.vault?.AssetsAvailable ?? 0)
+        if (!raised) throw new Error('Nothing has been deposited into this super vault yet.')
+
+        // The last payment must land on the maturity the curator chose, not a
+        // hardcoded few minutes: a loan past maturity can never be repaid.
+        const schedule = loanSchedule({ maturityRippleTime: entry.loan_maturity, nowMs: Date.now() })
+        if (schedule.error) throw new Error(schedule.error)
+
+        const res = await signTransaction(session, {
+          TransactionType: 'LoanSet', Account: address,
+          Counterparty: entry.deployment_address,
+          LoanBrokerID: entry.loan_broker_id,
+          PrincipalRequested: String(raised),
+          InterestRate: 5000,
+          PaymentInterval: schedule.PaymentInterval,
+          PaymentTotal: schedule.PaymentTotal,
+          GracePeriod: schedule.GracePeriod,
+        }, { submit: false })
+
+        savePendingLoan(entry.vault_id, res.tx_json)
+        held = getPendingLoan(entry.vault_id)
+        refreshPending()
+        settle({ state: 'ok' })
+      }
+
+      // 2. Deployment account counter-signs and the loan is submitted.
+      if (entry.status !== 'deployed') {
+        push({ label: '2 · Deployment account counter-signs', state: 'pending' })
+        const out = await counterSignWithDeployer(entry.vault_id, held.txJson)
+        if (out.result_code !== 'tesSUCCESS') throw new Error(`LoanSet: ${out.result_code}`)
+        clearPendingLoan(entry.vault_id); refreshPending()
+        settle({ state: 'ok', code: out.result_code, hash: out.hash,
+                 detail: out.loan_id ? `LoanID ${out.loan_id}` : undefined })
+      }
+
+      // 3. Allocate the drawn principal across the sub-funds.
+      const todo = entry.positions.filter((p) => !p.deposited_tx)
+      const split = splitRaise(entry, entry.positions)
+      for (const position of todo) {
+        const amount = split.find((x) => x.sub_vault_id === position.sub_vault_id)?.amount
+        if (!amount || amount === '0') continue
+        push({ label: `3 · Fund ${position.sub_vault_name ?? 'sub-fund'}`, state: 'pending' })
+        const out = await depositAsDeployer(entry.vault_id, position.sub_vault_id, amount)
+        settle({ state: out.result_code === 'tesSUCCESS' ? 'ok' : 'fail',
+                 code: out.result_code, hash: out.hash })
+        if (out.result_code !== 'tesSUCCESS') {
+          throw new Error(`${position.sub_vault_name}: ${out.result_code}`)
+        }
+      }
+
+      push({ label: 'Deployed', state: 'info',
+             detail: 'Capital is working in the sub-funds. Repayments will step the price per share.' })
+      onDone?.()
+    } catch (e) {
+      const msg = e?.errors?.[0] ?? e.message
+      if (trail.length && trail[trail.length - 1].state === 'pending') settle({ state: 'fail', error: msg })
+      else push({ label: 'Deploy', state: 'fail', error: msg })
+    } finally { setBusy(false) }
+  }
+
   function discard() {
     clearPendingLoan(entry.vault_id)
     refreshPending()
@@ -115,5 +232,8 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
     } finally { setBusy(false) }
   }
 
-  return { steps, busy, pending, isCurator, isDeployer, borrow, counterSign, discard, fund }
+  return {
+    steps, busy, pending, isCurator, isDeployer,
+    borrow, counterSign, counterSignWithTestAccount, discard, fund, fundWithTestAccount, deployAll,
+  }
 }

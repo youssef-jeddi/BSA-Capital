@@ -37,9 +37,11 @@ export function insert(superVault, allocations) {
   const tx = db.transaction(() => {
     db.prepare(`
       INSERT INTO super_vaults (vault_id, curator_address, deployment_address, loan_broker_id,
-                                name, strategy, subscription_date, redemption_date, status, created_at)
+                                name, strategy, subscription_date, redemption_date, loan_maturity,
+                                status, created_at)
       VALUES (@vault_id, @curator_address, @deployment_address, @loan_broker_id,
-              @name, @strategy, @subscription_date, @redemption_date, 'raising', @created_at)
+              @name, @strategy, @subscription_date, @redemption_date, @loan_maturity,
+              'raising', @created_at)
     `).run({ ...superVault, created_at: nowIso() })
 
     const stmt = db.prepare(`

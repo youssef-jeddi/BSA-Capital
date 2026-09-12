@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS super_vaults (
   strategy          TEXT,
   subscription_date INTEGER,
   redemption_date   INTEGER,
+  loan_maturity     INTEGER,          -- when the curator loan must be fully repaid
   status            TEXT NOT NULL DEFAULT 'raising',  -- raising | deployed | unwinding
   created_at        TEXT NOT NULL
 );
