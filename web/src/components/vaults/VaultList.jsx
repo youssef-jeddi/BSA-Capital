@@ -9,11 +9,22 @@ export default function VaultList({ vaults, nowMs, loading, error, onOpen }) {
   const [phase, setPhase] = useState('open')
   const [issuer, setIssuer] = useState('all')
   const [sort, setSort] = useState('closing')
+  const [kind, setKind] = useState('all')
 
-  const issuers = useMemo(() => issuersOf(vaults), [vaults])
+  const byKind = useMemo(
+    () => (kind === 'all' ? vaults : vaults.filter((v) => (v.kind ?? 'fund') === kind)),
+    [vaults, kind],
+  )
+  const counts = useMemo(() => ({
+    all: vaults.length,
+    fund: vaults.filter((v) => (v.kind ?? 'fund') === 'fund').length,
+    super: vaults.filter((v) => v.kind === 'super').length,
+  }), [vaults])
+
+  const issuers = useMemo(() => issuersOf(byKind), [byKind])
   const shown = useMemo(
-    () => sortVaults(filterVaults(vaults, { phase, issuer }), sort),
-    [vaults, phase, issuer, sort],
+    () => sortVaults(filterVaults(byKind, { phase, issuer }), sort),
+    [byKind, phase, issuer, sort],
   )
 
   const selectedIssuer = issuers.find((i) => i.address === issuer)
@@ -28,14 +39,24 @@ export default function VaultList({ vaults, nowMs, loading, error, onOpen }) {
 
       <div className="filters">
         <div className="chips">
+          {[{ id: 'all', label: 'Everything' },
+            { id: 'fund', label: 'Funds' },
+            { id: 'super', label: 'Super vaults' }].map((k) => (
+            <button key={k.id} type="button" className={kind === k.id ? 'chip on' : 'chip'}
+                    onClick={() => setKind(k.id)}>
+              {k.label}<span className="count">{counts[k.id]}</span>
+            </button>
+          ))}
+        </div>
+        <div className="chips">
           {PHASE_FILTERS.map((f) => (
             <button key={f.id} type="button" className={phase === f.id ? 'chip on' : 'chip'}
                     onClick={() => setPhase(f.id)}>
               {f.label}
               <span className="count">
                 {f.id === 'open'
-                  ? openCount(vaults, issuer)
-                  : filterVaults(vaults, { phase: 'all', issuer }).length}
+                  ? openCount(byKind, issuer)
+                  : filterVaults(byKind, { phase: 'all', issuer }).length}
               </span>
             </button>
           ))}
@@ -45,7 +66,7 @@ export default function VaultList({ vaults, nowMs, loading, error, onOpen }) {
           <label className="inline">
             Issuer
             <select value={issuer} onChange={(e) => setIssuer(e.target.value)}>
-              <option value="all">All issuers ({vaults.length})</option>
+              <option value="all">All issuers ({byKind.length})</option>
               {issuers.map((i) => (
                 <option key={i.address} value={i.address}>{i.name} ({i.count})</option>
               ))}

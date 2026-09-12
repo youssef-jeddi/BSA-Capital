@@ -1,5 +1,6 @@
 import { assetToDisplay } from '../../lib/ledger.js'
 import PhaseBadge from './PhaseBadge.jsx'
+import ZoneBadges from '../zones/ZoneBadges.jsx'
 
 /** One fund in the browse list. Presentation only. */
 export default function VaultCard({ entry, nowMs, onOpen }) {
@@ -7,11 +8,17 @@ export default function VaultCard({ entry, nowMs, onOpen }) {
   const open = phase?.phase === 'Subscription'
 
   return (
-    <button className="vaultcard" onClick={() => onOpen(entry)}>
+    <button className={entry.kind === 'super' ? 'vaultcard is-super' : 'vaultcard'}
+            onClick={() => onOpen(entry)}>
       <div className="vaultcard-head">
         <div>
           <b>{entry.name}</b>
-          <div className="dim">{entry.company_name} · {entry.company_activity}</div>
+          {entry.kind === 'super' && <span className="tag super">Super vault · fund-of-funds</span>}
+          <div className="dim">
+            {entry.company_name} · {entry.company_activity}
+            {entry.kind === 'super' && entry.positions &&
+              ` · ${entry.positions.length} funds`}
+          </div>
         </div>
         <PhaseBadge phase={phase} nowMs={nowMs} />
       </div>
@@ -20,7 +27,7 @@ export default function VaultCard({ entry, nowMs, onOpen }) {
         <div className="vaultcard-stats">
           <div><span>Raised</span><b>{assetToDisplay(vault, vault.AssetsTotal)} {entry.asset_code}</b></div>
           <div><span>Price / share</span><b>{pps == null ? '—' : pps.toFixed(6)}</b></div>
-          <div><span>Access</span><b>{entry.is_private ? 'Credential-gated' : 'Open'}</b></div>
+          <div><span>Access</span><b><ZoneBadges zones={entry.zones} compact /></b></div>
         </div>
       ) : (
         <p className="dim">Not readable on this network.</p>

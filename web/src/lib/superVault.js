@@ -80,3 +80,60 @@ export function splitRaise(entry, positions) {
   }
   return parts.map((p) => ({ sub_vault_id: p.sub_vault_id, amount: p.raw.toString() }))
 }
+
+/**
+ * Present a super vault in the same shape as a plain fund, so the browse list,
+ * cards and detail page can render both. A super vault is a real XLS-65 vault;
+ * only its strategy differs.
+ */
+export function asFundEntry(superVault) {
+  return {
+    ...superVault,
+    kind: 'super',
+    company_name: superVault.curator_name,
+    company_activity: superVault.strategy || 'Curated fund-of-funds',
+    company_address: superVault.curator_address,
+    asset_code: 'XRP',
+    is_private: 0,
+    onChain: !!superVault.own?.vault,
+    vault: superVault.own?.vault ?? null,
+    issuance: superVault.own?.issuance ?? null,
+    phase: superVault.own?.phase ?? null,
+    pps: superVault.own?.pps ?? null,
+  }
+}
+
+/**
+ * Derive a loan schedule from the maturity the curator chose.
+ *
+ * Hardcoding a short schedule made loans mature minutes after origination,
+ * long before the sub-funds redeemed, and a loan past maturity can never be
+ * repaid: LoanPay returns tecEXPIRED and the capital is stranded. The last
+ * payment must therefore land on the chosen maturity, which the API already
+ * guarantees is after every sub-fund redeems.
+ */
+export const MIN_PAYMENT_INTERVAL = 60
+export const MIN_GRACE = 60
+
+export function loanSchedule({ maturityRippleTime, nowMs, payments = 2 }) {
+  if (maturityRippleTime == null) {
+    return { error: 'This super vault has no recorded loan maturity. Relaunch it to set one.' }
+  }
+  // Ripple epoch starts 2000-01-01; convert without pulling in the SDK here.
+  const maturityMs = (maturityRippleTime + 946684800) * 1000
+  const seconds = Math.floor((maturityMs - nowMs) / 1000)
+
+  if (seconds < MIN_PAYMENT_INTERVAL * payments) {
+    return {
+      error: `The curator loan matures in ${seconds}s, too soon for ${payments} payments of at least `
+        + `${MIN_PAYMENT_INTERVAL}s. Deploy earlier, or relaunch with a later maturity.`,
+    }
+  }
+  const interval = Math.max(MIN_PAYMENT_INTERVAL, Math.floor(seconds / payments))
+  return {
+    PaymentInterval: interval,
+    PaymentTotal: payments,
+    GracePeriod: Math.min(interval, MIN_GRACE),
+    finalPaymentMs: nowMs + interval * payments * 1000,
+  }
+}

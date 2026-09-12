@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react'
 import { signTransaction } from '../wallet.js'
+import DateTimeField from './ui/DateTimeField.jsx'
+import { describeGap, inMinutes } from '../lib/schedule.js'
 import Steps from './Steps.jsx'
 import { rememberVault } from '../lib/store.js'
-import { recordVault } from '../lib/api.js'
+import { recordVault, resolveZoneDomain } from '../lib/api.js'
+import ZonePicker from './zones/ZonePicker.jsx'
+import { useZoneCatalogue } from '../hooks/useZones.js'
+import { takeRelaunch } from '../lib/relaunch.js'
 import {
   ASSET_CLASSES, ASSET_SUBCLASSES, MIN_INVESTMENT_SECONDS, buildVaultCreate,
   buildLoanBrokerSet, buildCoverDeposit, createdEntry, lifecycleDates,
@@ -13,9 +18,9 @@ const EXPLORER = 'https://devnet.xrpl.org'
 
 const INITIAL = {
   assetType: 'XRP', iouCurrency: '', iouIssuer: '', mptIssuanceId: '',
-  subMinutes: '6', redMinutes: '20',
+  subscriptionAt: inMinutes(6), redemptionAt: inMinutes(20),
   vaultName: '', website: '',
-  capEnabled: false, cap: '', private: false, domainId: '', nonTransferable: false,
+  capEnabled: false, cap: '', zones: [], private: false, domainId: '', nonTransferable: false,
   ticker: '', shareName: '', issuerName: '', assetClass: 'rwa', assetSubclass: 'private_credit',
   desc: '', icon: 'https://bsa.capital/icon.png',
   mgmtFee: '', maxDebt: '', coverRateMin: '', coverRateLiq: '', firstLoss: '',
@@ -26,17 +31,34 @@ const time = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minu
 export default function CreateVault({ session, address, company }) {
   // The registered company is the issuer, so prefill from its profile rather
   // than asking for the same details twice.
-  const [f, setF] = useState(() => ({
-    ...INITIAL,
-    issuerName: company?.name ?? '',
-    website: company?.website ?? '',
-  }))
+  const [f, setF] = useState(() => {
+    const base = { ...INITIAL, issuerName: company?.name ?? '', website: company?.website ?? '' }
+    const draft = takeRelaunch('fund')
+    if (!draft) return base
+    return {
+      ...base,
+      vaultName: draft.name,
+      ticker: draft.ticker || base.ticker,
+      issuerName: draft.issuerName || base.issuerName,
+      assetClass: draft.assetClass, assetSubclass: draft.assetSubclass,
+      desc: draft.desc, icon: draft.icon || base.icon,
+      capEnabled: !!draft.cap, cap: draft.cap,
+      private: draft.isPrivate, domainId: draft.domainId,
+      shareName: draft.name ? `${draft.name} Shares` : base.shareName,
+    }
+  })
   const [steps, setSteps] = useState([])
   const [busy, setBusy] = useState(false)
 
-  const set = (k) => (e) =>
-    setF((p) => ({ ...p, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }))
+  const set = (k) => (eventOrValue) =>
+    setF((p) => ({
+      ...p,
+      [k]: eventOrValue?.target
+        ? (eventOrValue.target.type === 'checkbox' ? eventOrValue.target.checked : eventOrValue.target.value)
+        : eventOrValue,
+    }))
 
+  const catalogue = useZoneCatalogue()
   const errors = useMemo(() => validateForm(f), [f])
   const warnings = useMemo(() => metadataWarnings(f), [f])
   const dates = useMemo(() => lifecycleDates(f), [f])
@@ -58,7 +80,15 @@ export default function CreateVault({ session, address, company }) {
   async function submit() {
     setBusy(true); setSteps([])
     try {
-      const vaultRes = await run('VaultCreate', buildVaultCreate(f, address))
+      // Zones resolve to one of the platform's permissioned domains. No zones
+      // means no domain, and the vault stays open to everyone.
+      let form = f
+      if (f.zones.length) {
+        const { domain_id } = await resolveZoneDomain(f.zones)
+        form = { ...f, private: true, domainId: domain_id }
+      }
+
+      const vaultRes = await run('VaultCreate', buildVaultCreate(form, address))
       const vault = createdEntry(vaultRes, 'Vault')
       if (!vault) throw new Error('VaultCreate succeeded but no Vault node found in metadata')
       rememberVault({ id: vault.id, label: f.vaultName || `${vault.id.slice(0, 8)}…` })
@@ -74,7 +104,9 @@ export default function CreateVault({ session, address, company }) {
         asset_code: f.assetType === 'XRP' ? 'XRP' : (f.iouCurrency || 'MPT'),
         subscription_date: dates.SubscriptionDate,
         redemption_date: dates.RedemptionDate,
-        is_private: f.private,
+        is_private: f.zones.length > 0,
+        zones: f.zones,
+        domain_id: form.domainId || null,
         tx_hash: vaultRes.hash,
       }).catch((e) => push({ label: 'Index warning', state: 'info',
                              detail: `Vault created on-ledger but not listed: ${e.message}` }))
@@ -138,22 +170,24 @@ export default function CreateVault({ session, address, company }) {
       <fieldset>
         <legend>Lifecycle <span className="dim">· close-ended</span></legend>
         <p className="dim">
-          Three phases, fixed at creation and immutable. Subscription: deposits and withdrawals,
-          lending blocked. Investment: loans only, capital locked. Redemption: withdrawals and
-          loan servicing, no new loans.
+          Three phases, fixed at creation and <b>immutable</b>. Subscription: deposits and
+          withdrawals, lending blocked. Investment: loans only, capital locked. Redemption:
+          withdrawals and loan servicing, no new loans.
         </p>
         <div className="grid2">
-          <label>Subscription ends in (min)<input type="number" min="1" value={f.subMinutes} onChange={set('subMinutes')} /></label>
-          <label>Redemption opens in (min)<input type="number" min="4" value={f.redMinutes} onChange={set('redMinutes')} /></label>
+          <DateTimeField label="Subscription closes" required
+                         value={f.subscriptionAt} onChange={set('subscriptionAt')} />
+          <DateTimeField label="Redemption opens" required
+                         value={f.redemptionAt} onChange={set('redemptionAt')} />
         </div>
-        {dates && (
+        {dates?.subscriptionUnix && dates?.redemptionUnix && (
           <div className="timeline">
             <span><b>Subscription</b> now &rarr; {time(dates.subscriptionUnix)}</span>
             <span><b>Investment</b> {time(dates.subscriptionUnix)} &rarr; {time(dates.redemptionUnix)}</span>
             <span><b>Redemption</b> from {time(dates.redemptionUnix)}</span>
             <span className="dim">
               Ripple time {dates.SubscriptionDate} / {dates.RedemptionDate} &middot; investment period{' '}
-              {(Number(f.redMinutes) - Number(f.subMinutes)) * 60}s (min {MIN_INVESTMENT_SECONDS}s)
+              {describeGap(f.subscriptionAt, f.redemptionAt)?.text} (ledger minimum {MIN_INVESTMENT_SECONDS}s)
             </span>
           </div>
         )}
@@ -173,9 +207,15 @@ export default function CreateVault({ session, address, company }) {
         <label className="check"><input type="checkbox" checked={f.capEnabled} onChange={set('capEnabled')} /> Set a maximum deposit cap</label>
         {f.capEnabled && <label>Cap<input type="number" min="0" value={f.cap} onChange={set('cap')} /></label>}
 
-        <label className="check"><input type="checkbox" checked={f.private} onChange={set('private')} /> Private vault (credential-gated)</label>
-        <p className="dim indent">Only holders of an accepted credential in the domain may deposit or receive shares. Enforced by the ledger.</p>
-        {f.private && <label>DomainID<input value={f.domainId} onChange={set('domainId')} placeholder="64 hex characters" spellCheck={false} /></label>}
+        <div className="subsection">
+          <b>Who may invest</b>
+          <p className="dim">
+            Pick the regulatory zones this fund accepts. The platform owns a permissioned domain for
+            every combination, so you never handle a domain id.
+          </p>
+          <ZonePicker available={catalogue.zones} selected={f.zones}
+                      onChange={(zones) => setF((p) => ({ ...p, zones }))} />
+        </div>
 
         <label className="check"><input type="checkbox" checked={f.nonTransferable} onChange={set('nonTransferable')} /> Non-transferable shares</label>
         <p className="dim indent">Shares could only be redeemed, never sold — this disables the secondary market.</p>

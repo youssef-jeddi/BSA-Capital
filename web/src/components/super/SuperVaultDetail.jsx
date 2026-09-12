@@ -1,5 +1,10 @@
+import { useEffect, useState } from 'react'
 import Steps from '../Steps.jsx'
+import { getDeploymentAccount } from '../../lib/api.js'
+import { draftFromVault, stageRelaunch } from '../../lib/relaunch.js'
 import PhaseBadge from '../vaults/PhaseBadge.jsx'
+import AllocationBreakdown from './AllocationBreakdown.jsx'
+import UnwindPanel from './UnwindPanel.jsx'
 import { assetToDisplay, countdown } from '../../lib/ledger.js'
 import { aggregateNav, bpsToPct } from '../../lib/superVault.js'
 import { useSuperVaultDeploy } from '../../hooks/useSuperVaultDeploy.js'
@@ -7,11 +12,19 @@ import { dropsToXrp } from 'xrpl'
 
 const xrp = (drops) => (drops == null ? '—' : Number(dropsToXrp(String(Math.floor(drops)))).toFixed(6))
 
-export default function SuperVaultDetail({ entry, nowMs, session, address, onBack, onRefresh }) {
+export default function SuperVaultDetail({ entry, nowMs, session, address, onBack, onRefresh, onRelaunch }) {
   const { own, positions } = entry
   const nav = aggregateNav(positions)
-  const { steps, busy, pending, isCurator, isDeployer, borrow, counterSign, discard, fund } =
-    useSuperVaultDeploy({ session, address, entry, onDone: onRefresh })
+  // A sub-fund can only receive capital while it is still raising.
+  const unfundable = positions.filter((p) => !p.deposited_tx && p.phase && p.phase.phase !== 'Subscription')
+  const {
+    steps, busy, pending, isCurator, isDeployer,
+    borrow, counterSign, counterSignWithTestAccount, discard, fund, fundWithTestAccount, deployAll,
+  } = useSuperVaultDeploy({ session, address, entry, onDone: onRefresh })
+
+  const [deployer, setDeployer] = useState(null)
+  useEffect(() => { getDeploymentAccount().then(setDeployer).catch(() => {}) }, [])
+  const testAccountMatches = deployer?.configured && deployer.address === entry.deployment_address
 
   const raised = own?.vault ? Number(own.vault.AssetsTotal ?? 0) : null
 
@@ -37,7 +50,17 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
 
       {nav.missing > 0 && (
         <p className="warnline">
-          {nav.missing} of {positions.length} positions could not be valued, so the NAV above is partial.
+          {nav.missing} of {positions.length} positions could not be read from the ledger, so the NAV
+          above is partial.
+        </p>
+      )}
+
+      {unfundable.length > 0 && (
+        <p className="warnline">
+          <b>{unfundable.length} allocation{unfundable.length === 1 ? '' : 's'} can no longer be funded.</b>{' '}
+          {unfundable.map((p) => p.sub_vault_name).join(', ')} left the Subscription phase, and a vault
+          only accepts deposits while it is raising. Deploying will originate the loan and then fail on
+          those deposits. Relaunch this super vault against funds that are still open.
         </p>
       )}
 
@@ -48,28 +71,15 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
           as its least recently updated sub-fund. Per-fund ledger sequences are shown rather than
           one number implying more precision than exists.
         </p>
-        <div className="alloctable">
-          {positions.map((p) => (
-            <div key={p.sub_vault_id} className="allocrow static">
-              <div>
-                <b>{p.sub_vault_name ?? p.sub_vault_id.slice(0, 10)}</b>
-                <small>
-                  {p.sub_company_name ?? 'unknown issuer'}
-                  {p.phase && ` · ${p.phase.phase}`}
-                  {p.lastLedger && ` · ledger ${p.lastLedger}`}
-                </small>
-              </div>
-              <div className="allocnums">
-                <span className="target">{bpsToPct(p.target_bps)}%</span>
-                <span>{p.shares ? `${p.shares} shares` : 'not funded'}</span>
-                <span>{p.value == null ? '—' : `${xrp(p.value)} XRP`}</span>
-                {isDeployer && entry.status === 'deployed' && !p.deposited_tx && (
-                  <button className="ghost sm" disabled={busy} onClick={() => fund(p)}>Fund</button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+        <AllocationBreakdown
+          positions={positions}
+          renderAction={(p) => (
+            entry.status === 'deployed' && !p.deposited_tx && (isDeployer || testAccountMatches)
+              ? <button className="ghost sm" disabled={busy}
+                        onClick={() => (isDeployer ? fund(p) : fundWithTestAccount(p))}>Fund</button>
+              : null
+          )}
+        />
       </fieldset>
 
       <fieldset>
@@ -91,49 +101,50 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
           <li><b>Unwind</b> — sub-funds redeem, the loan is repaid, price per share steps up</li>
         </ol>
 
-        {entry.status !== 'deployed' && (
+        {isCurator && testAccountMatches && entry.status !== 'deployed' && (
+          <>
+            <button className="primary full"
+                    disabled={busy || own?.phase?.phase !== 'Investment' || unfundable.length > 0}
+                    onClick={deployAll}>
+              {busy ? 'Deploying…' : 'Deploy capital into the funds'}
+            </button>
+            <p className="dim">
+              One wallet approval: you are lending your vault's capital, so you sign that. The
+              deployment account counter-signs and funds each allocation automatically.
+              {own?.phase?.phase !== 'Investment' &&
+                ' Available once this super vault enters its Investment phase.'}
+            </p>
+          </>
+        )}
+
+        {isCurator && !testAccountMatches && entry.status !== 'deployed' && (
           pending ? (
             <div className="handoff">
               <div className="handoff-head">
                 <b>Step 2 of 4 — awaiting the deployment account</b>
-                <small>Signed by the curator {new Date(pending.savedAt).toLocaleTimeString()}. Held in this browser.</small>
+                <small>Signed by the curator {new Date(pending.savedAt).toLocaleTimeString()}.</small>
               </div>
-              {isDeployer ? (
-                <>
-                  <p className="dim">
-                    You are the deployment account. Counter-signing completes the loan and submits it.
-                  </p>
-                  <div className="row">
-                    <button className="primary" disabled={busy} onClick={counterSign}>
-                      Counter-sign &amp; submit
-                    </button>
-                    <button className="ghost" disabled={busy} onClick={discard}>Discard</button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="dim">
-                    Switch the header dropdown to <code>{entry.deployment_address}</code>, come back
-                    here, and the counter-sign button appears. Nothing to copy.
-                  </p>
-                  <button className="ghost sm" disabled={busy} onClick={discard}>Discard and re-sign</button>
-                </>
-              )}
+              <p className="dim">
+                Switch the header dropdown to <code>{entry.deployment_address}</code> and come back.
+              </p>
+              <button className="ghost sm" disabled={busy} onClick={discard}>Discard and re-sign</button>
             </div>
-          ) : isCurator ? (
-            <>
-              <button className="primary" disabled={busy || own?.phase?.phase !== 'Investment'} onClick={borrow}>
-                Originate the curator loan
-              </button>
-              {own?.phase?.phase !== 'Investment' && (
-                <p className="dim">Available once the super vault enters its Investment phase.</p>
-              )}
-            </>
           ) : (
-            <p className="dim">
-              Waiting for the curator ({entry.curator_name}) to originate the loan.
-            </p>
+            <button className="primary" disabled={busy || own?.phase?.phase !== 'Investment'} onClick={borrow}>
+              Originate the curator loan
+            </button>
           )
+        )}
+
+        {!isCurator && isDeployer && pending && (
+          <div className="handoff">
+            <div className="handoff-head"><b>Awaiting your counter-signature</b></div>
+            <button className="primary" disabled={busy} onClick={counterSign}>Counter-sign &amp; submit</button>
+          </div>
+        )}
+
+        {!isCurator && !isDeployer && entry.status !== 'deployed' && (
+          <p className="dim">Waiting for the curator ({entry.curator_name}) to deploy.</p>
         )}
 
         {entry.status === 'deployed' && (
@@ -143,6 +154,24 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
           </p>
         )}
       </fieldset>
+
+      {entry.status === 'deployed' && (isCurator || isDeployer) && (
+        <UnwindPanel entry={entry} nowMs={nowMs} onRefresh={onRefresh} />
+      )}
+
+      {onRelaunch && isCurator && (
+        <fieldset>
+          <legend>Next series</legend>
+          <p className="dim">
+            Carries the strategy, deployment account and the full allocation plan into a new super
+            vault. Only the dates need choosing.
+          </p>
+          <button className="ghost"
+                  onClick={() => { stageRelaunch({ ...draftFromVault({ ...entry, kind: 'super' }) }); onRelaunch(entry) }}>
+            Relaunch as next series
+          </button>
+        </fieldset>
+      )}
 
       <Steps steps={steps} />
     </div>

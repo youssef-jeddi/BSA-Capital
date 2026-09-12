@@ -44,6 +44,32 @@ export function validateAllocations(allocations) {
 }
 
 /**
+ * The funding window.
+ *
+ * Capital only reaches a sub-fund after the super vault stops raising and
+ * lends to the deployment account, so every sub-fund must still be in its own
+ * Subscription phase at that moment:
+ *
+ *   super vault subscription close  <  sub-fund subscription close
+ *
+ * Miss this and the allocation is unfundable: the plan looks valid, the loan
+ * originates, and every deposit is then rejected.
+ */
+export function validateFundingWindow({ superSubscription, subVaults }) {
+  const errors = []
+  if (superSubscription == null) return errors
+  for (const sub of subVaults) {
+    if (sub.subscription_date == null) continue
+    if (sub.subscription_date <= superSubscription) {
+      errors.push(
+        `${sub.name} stops accepting deposits before this super vault finishes raising, so it could never be funded`,
+      )
+    }
+  }
+  return errors
+}
+
+/**
  * @param superRedemption  Ripple-time RedemptionDate of the super vault
  * @param loanMaturity     Ripple-time of the curator loan's final payment
  * @param subVaults        [{ vault_id, name, redemption_date }]

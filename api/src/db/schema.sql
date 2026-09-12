@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS vaults (
   subscription_date INTEGER,
   redemption_date   INTEGER,
   is_private        INTEGER NOT NULL DEFAULT 0,
+  zones             TEXT,               -- JSON array of zone codes, null = open to all
+  domain_id         TEXT,
   tx_hash           TEXT,
   created_at        TEXT NOT NULL
 );
@@ -70,6 +72,7 @@ CREATE TABLE IF NOT EXISTS super_vaults (
   strategy          TEXT,
   subscription_date INTEGER,
   redemption_date   INTEGER,
+  loan_maturity     INTEGER,          -- when the curator loan must be fully repaid
   status            TEXT NOT NULL DEFAULT 'raising',  -- raising | deployed | unwinding
   created_at        TEXT NOT NULL
 );
@@ -84,3 +87,61 @@ CREATE TABLE IF NOT EXISTS super_vault_allocations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_super_curator ON super_vaults(curator_address);
+
+-- Regulatory zones the platform operates, and the permissioned domain backing
+-- each combination of them.
+--
+-- A vault carries a single DomainID, but a domain accepts several credential
+-- types, so "EU or CH" is one domain accepting both zone credentials. We
+-- pre-create every non-empty subset of the zones and hand managers a zone
+-- picker instead of a 64-character id.
+CREATE TABLE IF NOT EXISTS zone_domains (
+  combo_key  TEXT PRIMARY KEY,   -- sorted zone codes joined by '+', e.g. "CH+EU"
+  zones      TEXT NOT NULL,      -- JSON array of zone codes
+  domain_id  TEXT NOT NULL,
+  tx_hash    TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- Credentials the platform has issued, so the UI can show pending acceptances.
+CREATE TABLE IF NOT EXISTS zone_credentials (
+  subject     TEXT NOT NULL,
+  zone        TEXT NOT NULL,
+  issued_tx   TEXT,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (subject, zone)
+);
+
+-- Secondary-market listings for locked vault shares.
+--
+-- During a close-ended vault's Investment phase VaultWithdraw returns tecTOO_SOON,
+-- but the share MPT still transfers, so a locked LP can sell instead of redeem.
+--
+-- A listing is an intent and lives here; every leg that moves value is a ledger
+-- transaction, recorded by hash and verified server-side before it is trusted.
+-- NAV is never stored: it is read live, like all on-chain state.
+--
+-- shares and ask_drops are TEXT: 50 XRP is 50,000,000 shares, which exceeds what
+-- SQLite integers and JS numbers handle safely together.
+CREATE TABLE IF NOT EXISTS listings (
+  id             TEXT PRIMARY KEY,        -- first 16 chars of transfer_hash
+  vault_id       TEXT NOT NULL,
+  share_mpt_id   TEXT NOT NULL,
+  domain_id      TEXT,                    -- null for a public vault
+  seller_address TEXT NOT NULL,
+  shares         TEXT NOT NULL,
+  ask_drops      TEXT NOT NULL,
+  nav_at_listing TEXT,                    -- drops per share when listed, for context only
+  status         TEXT NOT NULL DEFAULT 'open',   -- open | sold | cancelled
+  buyer_address  TEXT,
+  transfer_hash  TEXT NOT NULL,           -- seller -> custody
+  payment_hash   TEXT,                    -- buyer  -> seller
+  delivery_hash  TEXT,                    -- custody -> buyer
+  return_hash    TEXT,                    -- custody -> seller on cancel
+  created_at     TEXT NOT NULL,
+  settled_at     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status);
+CREATE INDEX IF NOT EXISTS idx_listings_vault  ON listings(vault_id);
+CREATE INDEX IF NOT EXISTS idx_listings_seller ON listings(seller_address);
