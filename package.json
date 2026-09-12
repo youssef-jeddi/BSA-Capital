@@ -1,0 +1,11 @@
+{
+  "name": "continuum",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "probe": "node scripts/00-probe-sdk.mjs"
+  },
+  "dependencies": {
+    "xrpl": "5.2.0-beta.0"
+  }
+}

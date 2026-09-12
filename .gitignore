@@ -1,0 +1,16 @@
+# Dependencies & builds
+node_modules/
+dist/
+*.log
+
+# Secrets — data/accounts.json holds Devnet SEEDS. Never commit this directory.
+data/
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+
+# DevEx capture (lives at the parent project root, ignored defensively)
+.xrpl-devex/

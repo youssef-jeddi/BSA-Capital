@@ -1,0 +1,43 @@
+:root {
+  --bg: #0e1116; --card: #161b22; --line: #262d36;
+  --fg: #e6edf3; --dim: #8b949e; --accent: #4c8dff;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 620px; margin: 0 auto; padding: 40px 20px; }
+header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 28px; }
+h1 { font-size: 22px; margin: 0; letter-spacing: -0.02em; }
+h2 { font-size: 14px; margin: 0 0 16px; color: var(--dim); font-weight: 600;
+     text-transform: uppercase; letter-spacing: 0.06em; }
+.net { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+label { display: block; font-size: 13px; color: var(--dim); margin-bottom: 14px; }
+input, textarea {
+  display: block; width: 100%; margin-top: 6px; padding: 9px 11px;
+  background: #0d1117; border: 1px solid var(--line); border-radius: 7px;
+  color: var(--fg); font: inherit;
+}
+textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; resize: vertical; }
+button {
+  padding: 9px 16px; border: 0; border-radius: 7px; background: var(--accent);
+  color: #fff; font: inherit; font-weight: 500; cursor: pointer;
+}
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.ghost { background: transparent; border: 1px solid var(--line); color: var(--fg); }
+.row { display: flex; gap: 10px; margin-top: 18px; }
+.uri { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.uri p { font-size: 13px; color: var(--dim); margin: 0 0 8px; }
+.uri button { margin-top: 10px; }
+dl { display: grid; grid-template-columns: 90px 1fr; gap: 8px 14px; margin: 0; font-size: 14px; }
+dt { color: var(--dim); }
+dd { margin: 0; word-break: break-all; }
+.mono, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+a { color: var(--accent); }
+.result { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 13px; word-break: break-all; }
+pre { background: #0d1117; padding: 12px; border-radius: 7px; overflow-x: auto; max-height: 260px; }
+summary { cursor: pointer; color: var(--dim); margin-top: 10px; }
+.status { margin-top: 16px; font-size: 13px; color: var(--dim); }
