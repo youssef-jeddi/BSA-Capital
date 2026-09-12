@@ -6,6 +6,7 @@ import Invest from './components/vaults/Invest.jsx'
 import Borrower from './components/Borrower.jsx'
 import MyVaults from './components/vaults/MyVaults.jsx'
 import Positions from './components/vaults/Positions.jsx'
+import Marketplace from './components/market/Marketplace.jsx'
 import Onboarding from './components/onboarding/Onboarding.jsx'
 import CompanyForm from './components/onboarding/CompanyForm.jsx'
 import UserForm from './components/onboarding/UserForm.jsx'
@@ -27,12 +28,14 @@ const TABS_BY_ROLE = {
     { id: 'myvaults', label: 'My vaults' },
     { id: 'depositor', label: 'Invest' },
     { id: 'positions', label: 'My positions' },
+    { id: 'market', label: 'Marketplace' },
     { id: 'borrower', label: 'Borrow' },
     { id: 'profile', label: 'Company profile' },
   ],
   user: [
     { id: 'depositor', label: 'Invest' },
     { id: 'positions', label: 'My positions' },
+    { id: 'market', label: 'Marketplace' },
     { id: 'profile', label: 'My profile' },
   ],
 }
@@ -189,6 +192,7 @@ export default function App() {
               {activeTab === 'myvaults' && <MyVaults key={address} session={session} address={address} company={profile} onGoToInvest={() => setTab('depositor')} />}
               {activeTab === 'depositor' && <Invest key={address} session={session} address={address} />}
               {activeTab === 'positions' && <Positions key={address} session={session} address={address} />}
+              {activeTab === 'market' && <Marketplace key={address} session={session} address={address} />}
               {activeTab === 'borrower' && <Borrower key={address} session={session} address={address} />}
               {activeTab === 'profile' && (role === 'company'
                 ? <CompanyForm address={address} existing={profile} onDone={refreshProfile} />

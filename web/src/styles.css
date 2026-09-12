@@ -302,3 +302,14 @@ button.linklike { background: none; border: 0; padding: 0; color: var(--accent);
 .subsection { margin-bottom: 18px; }
 .subsection > b { display: block; font-size: 13px; margin-bottom: 4px; }
 .verified { color: #3fb950; }
+
+/* ── marketplace ────────────────────────────────────── */
+.listing { border: 1px solid var(--line); border-radius: 9px; padding: 16px; margin-bottom: 12px; }
+.listing .stats { margin: 12px 0; }
+.asking { text-align: right; }
+.asking b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+.asking span { display: block; font-size: 11px; margin-top: 2px; }
+.asking .off { color: #3fb950; }
+.asking .over { color: #e3b341; }
+.sellpanel, .buypanel { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 14px; }
+.sellpanel h3 { font-size: 14px; margin: 0 0 6px; }

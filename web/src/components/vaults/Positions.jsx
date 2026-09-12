@@ -5,11 +5,13 @@ import PhaseBadge from './PhaseBadge.jsx'
 import { usePositions } from '../../hooks/usePositions.js'
 import { useClock } from '../../hooks/useClock.js'
 import { useVaultActions } from '../../hooks/useVaultActions.js'
+import SellPanel from '../market/SellPanel.jsx'
 
 const xrp = (drops) => (drops == null ? '—' : Number(dropsToXrp(String(Math.floor(drops)))).toFixed(6))
 
 function Position({ p, nowMs, session, address, onSettled }) {
   const [open, setOpen] = useState(false)
+  const [selling, setSelling] = useState(false)
   const { steps, busy, withdraw } = useVaultActions({
     session, address, vault: p.vault, vaultId: p.vault_id, onSettled,
   })
@@ -31,6 +33,12 @@ function Position({ p, nowMs, session, address, onSettled }) {
         <div><span>Value</span><b>{xrp(p.value)} {p.unit}</b></div>
       </div>
 
+      {selling && (
+        <SellPanel position={p} session={session} address={address}
+                   onListed={() => { setSelling(false); onSettled?.() }}
+                   onCancel={() => setSelling(false)} />
+      )}
+
       {p.canWithdraw ? (
         open ? (
           <div className="row" style={{ marginTop: 12 }}>
@@ -41,13 +49,22 @@ function Position({ p, nowMs, session, address, onSettled }) {
             <button className="ghost" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
           </div>
         ) : (
-          <button className="ghost" style={{ marginTop: 12 }} onClick={() => setOpen(true)}>Withdraw</button>
+          <div className="row" style={{ marginTop: 12 }}>
+            <button className="ghost" onClick={() => setOpen(true)}>Withdraw</button>
+            {!selling && <button className="ghost" onClick={() => setSelling(true)}>Sell instead</button>}
+          </div>
         )
       ) : (
-        <p className="dim" style={{ marginTop: 10 }}>
-          Locked during the Investment phase. Withdrawals reopen at Redemption
-          {p.phase?.endsAt ? ', when this fund stops lending.' : '.'}
-        </p>
+        !selling && (
+          <>
+            <p className="dim" style={{ marginTop: 10 }}>
+              Locked during the Investment phase: a withdrawal is refused with
+              <code> tecTOO_SOON</code>. The shares still transfer, so selling is your only
+              way out before Redemption.
+            </p>
+            <button className="primary" onClick={() => setSelling(true)}>Sell this position</button>
+          </>
+        )
       )}
 
       <Steps steps={steps} />

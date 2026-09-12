@@ -63,3 +63,16 @@ export const getZones = () => request('/zones')
 export const getHolderZones = (address) => request(`/zones/holder/${address}`)
 export const requestZoneCredential = (address, zone) => post('/zones/credentials', { address, zone })
 export const resolveZoneDomain = (zones) => post('/zones/domain', { zones })
+
+export const getCustody = () => request('/market/custody')
+export const getMarket = (params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString()
+  return request(`/market${q ? `?${q}` : ''}`)
+}
+export const getMarketVault = (vaultId) => request(`/market/vault/${vaultId}`)
+export const getEligibility = (vault, account) =>
+  request(`/market/eligibility?vault=${vault}&account=${account}`)
+export const prepareListing = (vault_id) => post('/market/prepare', { vault_id })
+export const createListing = (data) => post('/market/listings', data)
+export const settleListing = (id, payment_hash) => post(`/market/listings/${id}/settle`, { payment_hash })
+export const cancelListing = (id, seller) => post(`/market/listings/${id}/cancel`, { seller })
