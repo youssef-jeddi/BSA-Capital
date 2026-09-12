@@ -4,6 +4,10 @@ import PhaseBadge from './PhaseBadge.jsx'
 import { useVaultActions } from '../../hooks/useVaultActions.js'
 import { draftFromVault, stageRelaunch } from '../../lib/relaunch.js'
 import AllocationBreakdown from '../super/AllocationBreakdown.jsx'
+import ZoneBadges from '../zones/ZoneBadges.jsx'
+import ZoneGate from '../zones/ZoneGate.jsx'
+import { useHolderZones } from '../../hooks/useZones.js'
+import { zoneAccess } from '../../lib/zones.js'
 import {
   PHASE_RULES, assetToDisplay, fetchPosition, isXrpVault,
 } from '../../lib/ledger.js'
@@ -37,6 +41,9 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
     )
   }
 
+  const { zones: heldZones, issuer, refresh: refreshZones } = useHolderZones(address)
+  const access = zoneAccess(entry.zones, heldZones)
+
   const rules = PHASE_RULES[phase.phase]
   const nextName = draftFromVault(entry).name
   const unit = isXrpVault(vault) ? 'XRP' : (vault.Asset.currency ?? 'units')
@@ -52,6 +59,7 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
           <b style={{ fontSize: 18 }}>{entry.name}</b>
           {entry.is_private ? <span className="tag">credential-gated</span> : <span className="tag">open</span>}
           <div className="dim">{entry.company_name} · {entry.company_activity} · {entry.company_country}</div>
+          <div style={{ marginTop: 6 }}><ZoneBadges zones={entry.zones} /></div>
         </div>
         <PhaseBadge phase={phase} nowMs={nowMs} />
       </div>
@@ -79,6 +87,18 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
         </fieldset>
       )}
 
+      {access.gated && !access.allowed && (
+        <ZoneGate vaultZones={entry.zones} access={access} session={session} address={address}
+                  issuer={issuer} onVerified={refreshZones} />
+      )}
+
+      {access.gated && access.allowed && (
+        <p className="dim verified">
+          Verified for this fund. Your wallet holds an accepted credential for{' '}
+          {entry.zones.filter((z) => heldZones.some((h) => h.zone === z && h.accepted)).join(', ')}.
+        </p>
+      )}
+
       <fieldset>
         <legend>{rules.deposit ? 'Deposit' : 'Your position'}</legend>
 
@@ -99,7 +119,8 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
         </div>
 
         <div className="row" style={{ marginTop: 14 }}>
-          <button className="primary" disabled={busy || !amount || mode === 'shares' || (!rules.deposit && !force)}
+          <button className="primary"
+                  disabled={busy || !amount || mode === 'shares' || (!rules.deposit && !force) || !access.allowed}
                   onClick={() => deposit(amount)}>
             Deposit
           </button>

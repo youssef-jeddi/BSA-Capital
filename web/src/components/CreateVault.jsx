@@ -4,7 +4,9 @@ import DateTimeField from './ui/DateTimeField.jsx'
 import { describeGap, inMinutes } from '../lib/schedule.js'
 import Steps from './Steps.jsx'
 import { rememberVault } from '../lib/store.js'
-import { recordVault } from '../lib/api.js'
+import { recordVault, resolveZoneDomain } from '../lib/api.js'
+import ZonePicker from './zones/ZonePicker.jsx'
+import { useZoneCatalogue } from '../hooks/useZones.js'
 import { takeRelaunch } from '../lib/relaunch.js'
 import {
   ASSET_CLASSES, ASSET_SUBCLASSES, MIN_INVESTMENT_SECONDS, buildVaultCreate,
@@ -18,7 +20,7 @@ const INITIAL = {
   assetType: 'XRP', iouCurrency: '', iouIssuer: '', mptIssuanceId: '',
   subscriptionAt: inMinutes(6), redemptionAt: inMinutes(20),
   vaultName: '', website: '',
-  capEnabled: false, cap: '', private: false, domainId: '', nonTransferable: false,
+  capEnabled: false, cap: '', zones: [], private: false, domainId: '', nonTransferable: false,
   ticker: '', shareName: '', issuerName: '', assetClass: 'rwa', assetSubclass: 'private_credit',
   desc: '', icon: 'https://bsa.capital/icon.png',
   mgmtFee: '', maxDebt: '', coverRateMin: '', coverRateLiq: '', firstLoss: '',
@@ -56,6 +58,7 @@ export default function CreateVault({ session, address, company }) {
         : eventOrValue,
     }))
 
+  const catalogue = useZoneCatalogue()
   const errors = useMemo(() => validateForm(f), [f])
   const warnings = useMemo(() => metadataWarnings(f), [f])
   const dates = useMemo(() => lifecycleDates(f), [f])
@@ -77,7 +80,15 @@ export default function CreateVault({ session, address, company }) {
   async function submit() {
     setBusy(true); setSteps([])
     try {
-      const vaultRes = await run('VaultCreate', buildVaultCreate(f, address))
+      // Zones resolve to one of the platform's permissioned domains. No zones
+      // means no domain, and the vault stays open to everyone.
+      let form = f
+      if (f.zones.length) {
+        const { domain_id } = await resolveZoneDomain(f.zones)
+        form = { ...f, private: true, domainId: domain_id }
+      }
+
+      const vaultRes = await run('VaultCreate', buildVaultCreate(form, address))
       const vault = createdEntry(vaultRes, 'Vault')
       if (!vault) throw new Error('VaultCreate succeeded but no Vault node found in metadata')
       rememberVault({ id: vault.id, label: f.vaultName || `${vault.id.slice(0, 8)}…` })
@@ -93,7 +104,9 @@ export default function CreateVault({ session, address, company }) {
         asset_code: f.assetType === 'XRP' ? 'XRP' : (f.iouCurrency || 'MPT'),
         subscription_date: dates.SubscriptionDate,
         redemption_date: dates.RedemptionDate,
-        is_private: f.private,
+        is_private: f.zones.length > 0,
+        zones: f.zones,
+        domain_id: form.domainId || null,
         tx_hash: vaultRes.hash,
       }).catch((e) => push({ label: 'Index warning', state: 'info',
                              detail: `Vault created on-ledger but not listed: ${e.message}` }))
@@ -194,9 +207,15 @@ export default function CreateVault({ session, address, company }) {
         <label className="check"><input type="checkbox" checked={f.capEnabled} onChange={set('capEnabled')} /> Set a maximum deposit cap</label>
         {f.capEnabled && <label>Cap<input type="number" min="0" value={f.cap} onChange={set('cap')} /></label>}
 
-        <label className="check"><input type="checkbox" checked={f.private} onChange={set('private')} /> Private vault (credential-gated)</label>
-        <p className="dim indent">Only holders of an accepted credential in the domain may deposit or receive shares. Enforced by the ledger.</p>
-        {f.private && <label>DomainID<input value={f.domainId} onChange={set('domainId')} placeholder="64 hex characters" spellCheck={false} /></label>}
+        <div className="subsection">
+          <b>Who may invest</b>
+          <p className="dim">
+            Pick the regulatory zones this fund accepts. The platform owns a permissioned domain for
+            every combination, so you never handle a domain id.
+          </p>
+          <ZonePicker available={catalogue.zones} selected={f.zones}
+                      onChange={(zones) => setF((p) => ({ ...p, zones }))} />
+        </div>
 
         <label className="check"><input type="checkbox" checked={f.nonTransferable} onChange={set('nonTransferable')} /> Non-transferable shares</label>
         <p className="dim indent">Shares could only be redeemed, never sold — this disables the secondary market.</p>

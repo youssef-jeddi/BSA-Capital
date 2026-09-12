@@ -4,6 +4,10 @@ import Steps from './Steps.jsx'
 import LenderPicker from './borrow/LenderPicker.jsx'
 import { useVaults } from '../hooks/useVaults.js'
 import { useClock } from '../hooks/useClock.js'
+import ZoneGate from './zones/ZoneGate.jsx'
+import ZoneBadges from './zones/ZoneBadges.jsx'
+import { useHolderZones } from '../hooks/useZones.js'
+import { zoneAccess } from '../lib/zones.js'
 import {
   assetToDisplay, countdown, fetchBroker, fetchLoans, isXrpVault,
   ledgerNowMs, loanState, phaseOf, rateToPct, submitSigned,
@@ -46,6 +50,10 @@ export default function Borrower({ session, address }) {
   }, [brokerId])
 
   const set = (k) => (e) => setTerms((p) => ({ ...p, [k]: e.target.value }))
+
+  const { zones: heldZones, issuer, refresh: refreshZones } = useHolderZones(address)
+  const selectedLender = lenders.find((l) => l.loan_broker_id === brokerId)
+  const access = zoneAccess(selectedLender?.zones, heldZones)
 
   const selfDealing = ctx && ctx.broker.Owner === address
   // rippled enforces a 60s floor on GracePeriod; xrpl.js only checks grace <= interval,
@@ -154,6 +162,15 @@ export default function Borrower({ session, address }) {
         <LenderPicker lenders={lenders} selected={brokerId} nowMs={nowMs} loading={lendersLoading}
                       onSelect={(l) => setBrokerId(l.loan_broker_id)} />
 
+        {selectedLender?.zones?.length > 0 && (
+          <p className="dim">Lender restricted to <ZoneBadges zones={selectedLender.zones} /></p>
+        )}
+
+        {access.gated && !access.allowed && (
+          <ZoneGate vaultZones={selectedLender.zones} access={access} session={session}
+                    address={address} issuer={issuer} onVerified={refreshZones} />
+        )}
+
         {ctx && (
           <>
             <div className="stats">
@@ -192,7 +209,9 @@ export default function Borrower({ session, address }) {
 
         {termErrors.length > 0 && <ul className="errors">{termErrors.map((e) => <li key={e}>{e}</li>)}</ul>}
 
-        <button className="primary" disabled={busy || !ctx || selfDealing || termErrors.length > 0} onClick={signRequest}>
+        <button className="primary"
+                disabled={busy || !ctx || selfDealing || termErrors.length > 0 || !access.allowed}
+                onClick={signRequest}>
           Sign request (no submit)
         </button>
 

@@ -2,6 +2,7 @@
 import * as vaults from '../repositories/vaults.js'
 import * as companies from '../repositories/companies.js'
 import { validateAddress, collect } from '../validation/profiles.js'
+import { validateZones } from '../lib/zones.js'
 
 const fail = (status, ...errors) => ({ ok: false, status, errors: errors.flat() })
 const ok = (data) => ({ ok: true, data })
@@ -17,6 +18,7 @@ export function recordVault(input) {
     input.loan_broker_id && !isLedgerId(input.loan_broker_id)
       ? 'loan_broker_id must be 64 hexadecimal characters' : null,
     clean(input.name) ? null : 'name is required',
+    validateZones(input.zones ?? []),
   )
   if (errors.length) return fail(400, errors)
 
@@ -39,6 +41,8 @@ export function recordVault(input) {
     subscription_date: toInt(input.subscription_date),
     redemption_date: toInt(input.redemption_date),
     is_private: input.is_private ? 1 : 0,
+    zones: input.zones?.length ? JSON.stringify([...new Set(input.zones)].sort()) : null,
+    domain_id: clean(input.domain_id)?.toUpperCase() ?? null,
     tx_hash: clean(input.tx_hash),
   }))
 }

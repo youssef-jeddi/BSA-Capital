@@ -9,7 +9,8 @@
     "lifecycle": "node scripts/03-loan-lifecycle.mjs",
     "seed": "node scripts/04-seed-funds.mjs",
     "supervault-account": "node scripts/05-supervault-account.mjs",
-    "e2e": "node scripts/06-supervault-e2e.mjs"
+    "e2e": "node scripts/06-supervault-e2e.mjs",
+    "setup-zones": "node -e \"fetch('http://127.0.0.1:8787/api/zones/setup',{method:'POST'}).then(r=>r.json()).then(o=>console.log(JSON.stringify(o,null,2)))\""
   },
   "dependencies": {
     "xrpl": "5.2.0-beta.1"

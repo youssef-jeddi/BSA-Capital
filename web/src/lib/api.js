@@ -58,3 +58,8 @@ export const repayCuratorLoan = (superVaultId, amount) =>
   post(`/super-vaults/${superVaultId}/repay`, { amount })
 export const withdrawFromSubFund = (superVaultId, subVaultId, shares) =>
   post(`/super-vaults/${superVaultId}/allocations/${subVaultId}/withdraw`, { shares })
+
+export const getZones = () => request('/zones')
+export const getHolderZones = (address) => request(`/zones/holder/${address}`)
+export const requestZoneCredential = (address, zone) => post('/zones/credentials', { address, zone })
+export const resolveZoneDomain = (zones) => post('/zones/domain', { zones })

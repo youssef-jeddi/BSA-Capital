@@ -278,3 +278,27 @@ button.linklike { background: none; border: 0; padding: 0; color: var(--accent);
 .position.is-super { border-color: rgba(76,141,255,0.35);
                      background: linear-gradient(180deg, rgba(76,141,255,0.06), transparent); }
 .position .stats { margin: 12px 0 0; }
+
+/* ── regulatory zones ───────────────────────────────── */
+.zones { display: inline-flex; gap: 4px; }
+.zone { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; padding: 2px 7px;
+        border-radius: 4px; background: rgba(76,141,255,0.15);
+        border: 1px solid rgba(76,141,255,0.45); color: var(--accent); }
+.zone.open { background: transparent; border-color: var(--line); color: var(--dim); font-weight: 400; }
+
+.zonegrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.zonecard { background: #0d1117; border: 1px solid var(--line); border-radius: 9px;
+            padding: 14px; text-align: left; color: var(--fg); }
+.zonecard:hover { border-color: var(--accent); }
+.zonecard.on { border-color: var(--accent); background: rgba(76,141,255,0.10); }
+.zonecard b { display: block; font-size: 16px; margin-bottom: 3px; }
+.zonecard span { font-size: 11px; color: var(--dim); }
+
+.gate { background: rgba(227,179,65,0.06); border: 1px solid rgba(227,179,65,0.35);
+        border-radius: 9px; padding: 18px; margin: 16px 0; }
+.gate h3 { margin: 0 0 8px; font-size: 15px; color: #e3b341; }
+.gate .field { margin: 14px 0; }
+.gate .check { margin-bottom: 14px; align-items: flex-start; }
+.subsection { margin-bottom: 18px; }
+.subsection > b { display: block; font-size: 13px; margin-bottom: 4px; }
+.verified { color: #3fb950; }

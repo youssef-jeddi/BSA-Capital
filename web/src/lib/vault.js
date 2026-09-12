@@ -61,9 +61,6 @@ export function validateForm(f) {
   if (!f.icon) errs.push('Icon URL is required by XLS-89 (the validator rejects an empty icon).')
   if (f.assetClass === 'rwa' && !f.assetSubclass) errs.push("Asset subclass is required when asset class is 'rwa'.")
 
-  if (f.private && !f.domainId) errs.push('A private vault needs a DomainID (the ledger rejects DomainID without tfVaultPrivate, and gating without a domain is pointless).')
-  if (f.domainId && !f.private) errs.push('DomainID may only be set on a private vault.')
-  if (f.domainId && !/^[0-9A-Fa-f]{64}$/u.test(f.domainId)) errs.push('DomainID must be 64 hex characters.')
 
   const sub = fromInputValue(f.subscriptionAt)
   const red = fromInputValue(f.redemptionAt)

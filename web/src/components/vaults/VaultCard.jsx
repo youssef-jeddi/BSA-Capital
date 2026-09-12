@@ -1,5 +1,6 @@
 import { assetToDisplay } from '../../lib/ledger.js'
 import PhaseBadge from './PhaseBadge.jsx'
+import ZoneBadges from '../zones/ZoneBadges.jsx'
 
 /** One fund in the browse list. Presentation only. */
 export default function VaultCard({ entry, nowMs, onOpen }) {
@@ -26,7 +27,7 @@ export default function VaultCard({ entry, nowMs, onOpen }) {
         <div className="vaultcard-stats">
           <div><span>Raised</span><b>{assetToDisplay(vault, vault.AssetsTotal)} {entry.asset_code}</b></div>
           <div><span>Price / share</span><b>{pps == null ? '—' : pps.toFixed(6)}</b></div>
-          <div><span>Access</span><b>{entry.is_private ? 'Credential-gated' : 'Open'}</b></div>
+          <div><span>Access</span><b><ZoneBadges zones={entry.zones} compact /></b></div>
         </div>
       ) : (
         <p className="dim">Not readable on this network.</p>
