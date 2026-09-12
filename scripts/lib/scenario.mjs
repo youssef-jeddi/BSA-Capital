@@ -17,7 +17,10 @@ import {
 
 const TYPE = toHex(CREDENTIAL_TYPE)
 const SUB_SECONDS = 45
-const RED_SECONDS = 1800
+// How long the vault stays in Investment — i.e. how long the demo premise holds.
+// Once it reaches Redemption the LPs can withdraw normally and there is nothing for a
+// secondary market to solve, so keep this comfortably longer than any demo.
+const RED_SECONDS = Number(process.env.DEMO_WINDOW_SECONDS ?? 7200)
 
 /**
  * NAV stays at 1.0 in this scenario, and that is a ledger constraint rather than a gap
