@@ -144,3 +144,49 @@ label.check input { width: auto; margin: 0; }
 textarea { width: 100%; }
 select.sm { width: auto; margin-top: 0; padding: 4px 8px; font-size: 12px;
             font-family: ui-monospace, Menlo, monospace; }
+
+/* ── onboarding ─────────────────────────────────────── */
+.field { display: block; margin-bottom: 16px; }
+.field-label { display: block; font-size: 13px; color: var(--dim); margin-bottom: 6px; }
+.field-label em { color: #f85149; font-style: normal; }
+.field input, .field select { margin-top: 0; }
+.field-hint { display: block; font-size: 11px; color: var(--dim); margin-top: 5px; }
+.field-error { display: block; font-size: 11px; color: #ff9b95; margin-top: 5px; }
+.field.bad input, .field.bad select { border-color: rgba(248,81,73,0.5); }
+
+.roles { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 620px) { .roles { grid-template-columns: 1fr; } }
+.role { display: block; text-align: left; background: #0d1117; border: 1px solid var(--line);
+        color: var(--fg); padding: 18px; border-radius: 9px; }
+.role:hover { border-color: var(--accent); }
+.role b { display: block; font-size: 15px; margin-bottom: 6px; }
+.role span { display: block; font-size: 12px; color: var(--dim); line-height: 1.5; }
+
+.badge { border: 1px solid var(--line); border-radius: 20px; padding: 2px 10px;
+         font-size: 11px; color: var(--fg); }
+code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+
+/* ── fund browser ───────────────────────────────────── */
+.vaultgrid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.vaultcard { display: block; width: 100%; text-align: left; background: #0d1117;
+             border: 1px solid var(--line); border-radius: 10px; padding: 16px; color: var(--fg); }
+.vaultcard:hover { border-color: var(--accent); }
+.vaultcard-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.vaultcard-head b { font-size: 15px; display: block; margin-bottom: 3px; }
+.vaultcard-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 10px; }
+.vaultcard-stats span { display: block; font-size: 10px; color: var(--dim); margin-bottom: 2px; }
+.vaultcard-stats b { font-size: 13px; font-variant-numeric: tabular-nums; }
+.vaultcard-foot { border-top: 1px solid var(--line); padding-top: 10px; }
+.cta { font-size: 12px; color: var(--dim); }
+.cta.open { color: var(--accent); font-weight: 500; }
+.p-unknown { color: var(--dim); }
+.chip .count { margin-left: 8px; opacity: 0.65; font-variant-numeric: tabular-nums; }
+.empty { font-size: 13px; color: var(--dim); background: #0d1117; border: 1px dashed var(--line);
+         border-radius: 8px; padding: 22px; text-align: center; }
+.filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.filter-row { gap: 14px; }
+label.inline { display: flex; align-items: center; gap: 8px; margin: 0;
+               font-size: 12px; color: var(--dim); flex: 0 1 auto; }
+label.inline select { width: auto; min-width: 150px; margin-top: 0; padding: 6px 9px; font-size: 12px; }
+.issuer-note { margin: -6px 0 14px; }
+.issuer-note b { color: var(--fg); }

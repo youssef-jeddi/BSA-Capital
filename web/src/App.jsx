@@ -2,17 +2,33 @@ import { useEffect, useState } from 'react'
 import { Client } from 'xrpl'
 import { startPairing, restoreSession, disconnect, accountOf, allSessions, getClient, CHAIN } from './wallet.js'
 import CreateVault from './components/CreateVault.jsx'
-import Depositor from './components/Depositor.jsx'
+import Invest from './components/vaults/Invest.jsx'
 import Borrower from './components/Borrower.jsx'
+import Onboarding from './components/onboarding/Onboarding.jsx'
+import CompanyForm from './components/onboarding/CompanyForm.jsx'
+import UserForm from './components/onboarding/UserForm.jsx'
+import { useProfile } from './hooks/useProfile.js'
 
 const WSS = 'wss://s.devnet.rippletest.net:51233/'
 const EXPLORER = 'https://devnet.xrpl.org'
 
-const TABS = [
-  { id: 'broker', label: 'Broker', ready: true },
-  { id: 'depositor', label: 'Depositor', ready: true },
-  { id: 'borrower', label: 'Borrower', ready: true },
-]
+/**
+ * Registration is exclusive (an address is a company or an individual), but a
+ * company can still invest: a curator allocating across other funds is the
+ * whole super-vault idea, so 'Invest' is not investor-only.
+ */
+const TABS_BY_ROLE = {
+  company: [
+    { id: 'broker', label: 'Issue a fund' },
+    { id: 'depositor', label: 'Invest' },
+    { id: 'borrower', label: 'Borrow' },
+    { id: 'profile', label: 'Company profile' },
+  ],
+  user: [
+    { id: 'depositor', label: 'Invest' },
+    { id: 'profile', label: 'My profile' },
+  ],
+}
 
 const savedProjectId = () =>
   import.meta.env.VITE_WC_PROJECT_ID || localStorage.getItem('wc_project_id') || ''
@@ -26,9 +42,12 @@ export default function App() {
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
   const [balance, setBalance] = useState(null)
-  const [tab, setTab] = useState('broker')
+  const [tab, setTab] = useState(null)
 
   const address = accountOf(session)
+  const { loading: profileLoading, role, profile, error: profileError, refresh: refreshProfile } = useProfile(address)
+  const tabs = TABS_BY_ROLE[role] ?? []
+  const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id
 
   useEffect(() => {
     if (!projectId) return
@@ -93,10 +112,11 @@ export default function App() {
                 {address.slice(0, 8)}…{address.slice(-6)}
               </a>
             )}
+            {profile && <span className="badge">{profile.name ?? profile.display_name}</span>}
             <span>{balance === null ? '…' : `${balance} XRP`}</span>
             <button className="ghost sm" onClick={() => setBump((n) => n + 1)}>Refresh</button>
             <button className="ghost sm" onClick={() => { setPairing(true); connect() }}>+ Wallet</button>
-            <button className="ghost sm" onClick={drop}>Disconnect</button>
+            <button className="ghost sm" onClick={drop}>Log out</button>
           </div>
         )}
       </header>
@@ -132,17 +152,38 @@ export default function App() {
               </div>
             </div>
           )}
-          <nav className="tabs">
-            {TABS.map((t) => (
-              <button key={t.id} disabled={!t.ready} className={tab === t.id ? 'tab on' : 'tab'}
-                      onClick={() => setTab(t.id)}>
-                {t.label}{!t.ready && <span className="soon">soon</span>}
-              </button>
-            ))}
-          </nav>
-          {tab === 'broker' && <CreateVault key={address} session={session} address={address} />}
-          {tab === 'depositor' && <Depositor key={address} session={session} address={address} />}
-          {tab === 'borrower' && <Borrower key={address} session={session} address={address} />}
+
+          {profileLoading ? (
+            <p className="status">Loading profile…</p>
+          ) : profileError ? (
+            <div className="card">
+              <h2>Cannot reach the API</h2>
+              <p className="lede">
+                {profileError}. The onboarding API should be on :8787 — start it with
+                <code> npm run api</code>. Not registering you again until it answers.
+              </p>
+              <button className="primary" onClick={refreshProfile}>Retry</button>
+            </div>
+          ) : !role ? (
+            <Onboarding address={address} onDone={refreshProfile} />
+          ) : (
+            <>
+              <nav className="tabs">
+                {tabs.map((t) => (
+                  <button key={t.id} className={activeTab === t.id ? 'tab on' : 'tab'}
+                          onClick={() => setTab(t.id)}>
+                    {t.label}
+                  </button>
+                ))}
+              </nav>
+              {activeTab === 'broker' && <CreateVault key={address} session={session} address={address} company={profile} />}
+              {activeTab === 'depositor' && <Invest key={address} session={session} address={address} />}
+              {activeTab === 'borrower' && <Borrower key={address} session={session} address={address} />}
+              {activeTab === 'profile' && (role === 'company'
+                ? <CompanyForm address={address} existing={profile} onDone={refreshProfile} />
+                : <UserForm address={address} existing={profile} onDone={refreshProfile} />)}
+            </>
+          )}
         </>
       )}
 

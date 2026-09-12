@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { signTransaction } from '../wallet.js'
 import Steps from './Steps.jsx'
 import { rememberVault } from '../lib/store.js'
+import { recordVault } from '../lib/api.js'
 import {
   ASSET_CLASSES, ASSET_SUBCLASSES, MIN_INVESTMENT_SECONDS, buildVaultCreate,
   buildLoanBrokerSet, buildCoverDeposit, createdEntry, lifecycleDates,
@@ -22,8 +23,14 @@ const INITIAL = {
 
 const time = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
-export default function CreateVault({ session, address }) {
-  const [f, setF] = useState(INITIAL)
+export default function CreateVault({ session, address, company }) {
+  // The registered company is the issuer, so prefill from its profile rather
+  // than asking for the same details twice.
+  const [f, setF] = useState(() => ({
+    ...INITIAL,
+    issuerName: company?.name ?? '',
+    website: company?.website ?? '',
+  }))
   const [steps, setSteps] = useState([])
   const [busy, setBusy] = useState(false)
 
@@ -55,12 +62,32 @@ export default function CreateVault({ session, address }) {
       const vault = createdEntry(vaultRes, 'Vault')
       if (!vault) throw new Error('VaultCreate succeeded but no Vault node found in metadata')
       rememberVault({ id: vault.id, label: f.vaultName || `${vault.id.slice(0, 8)}…` })
+      // Publish to the index: the ledger has no global vault list, so without
+      // this the fund is invisible to every investor who did not create it.
+      const dates = lifecycleDates(f)
+      await recordVault({
+        vault_id: vault.id,
+        company_address: address,
+        share_mpt_id: vault.fields?.ShareMPTID,
+        name: f.vaultName || `Fund ${vault.id.slice(0, 6)}`,
+        activity: company?.activity ?? null,
+        asset_code: f.assetType === 'XRP' ? 'XRP' : (f.iouCurrency || 'MPT'),
+        subscription_date: dates.SubscriptionDate,
+        redemption_date: dates.RedemptionDate,
+        is_private: f.private,
+        tx_hash: vaultRes.hash,
+      }).catch((e) => push({ label: 'Index warning', state: 'info',
+                             detail: `Vault created on-ledger but not listed: ${e.message}` }))
       push({ label: 'Vault created', state: 'info',
              detail: `VaultID ${vault.id}\nShare MPT ${vault.fields?.ShareMPTID ?? '—'}\nSaved — now selectable in the Depositor tab.` })
 
       const brokerRes = await run('LoanBrokerSet', buildLoanBrokerSet(f, address, vault.id))
       const broker = createdEntry(brokerRes, 'LoanBroker')
       if (broker) {
+        await recordVault({
+          vault_id: vault.id, company_address: address, loan_broker_id: broker.id,
+          name: f.vaultName || `Fund ${vault.id.slice(0, 6)}`,
+        }).catch(() => {})
         push({ label: 'Broker registered', state: 'info',
                detail: `LoanBrokerID ${broker.id}\nPaste this into the Borrower tab to request a loan.` })
       }
@@ -82,10 +109,11 @@ export default function CreateVault({ session, address }) {
 
   return (
     <div className="card">
-      <h2>Create a vault</h2>
+      <h2>Issue a fund</h2>
       <p className="lede">
-        Configure and deploy a vault, then register a loan broker against it. Signed by the connected
-        broker wallet — one approval per transaction.
+        {company
+          ? <>Deploying as <b>{company.name}</b>. Configure the vault, then register a loan broker against it. One wallet approval per transaction.</>
+          : <>Configure and deploy a vault, then register a loan broker against it. One wallet approval per transaction.</>}
       </p>
 
       <fieldset>
