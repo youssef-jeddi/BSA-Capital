@@ -47,7 +47,7 @@ export default function CompanyForm({ address, existing, onDone }) {
 
       <ErrorList errors={errors} />
 
-      <button className="primary full" type="submit" disabled={busy}>
+      <button className="full" type="submit" disabled={busy}>
         {busy ? 'Saving…' : existing ? 'Save changes' : 'Register company'}
       </button>
     </form>

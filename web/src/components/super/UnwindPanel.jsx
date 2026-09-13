@@ -96,7 +96,7 @@ export default function UnwindPanel({ entry, nowMs, onRefresh }) {
         <button className="ghost" disabled={busy || !stillHeld.length} onClick={redeemAll}>
           Redeem {stillHeld.length || ''} sub-fund position{stillHeld.length === 1 ? '' : 's'}
         </button>
-        <button className="primary" disabled={busy || !loan} onClick={repay}>
+        <button disabled={busy || !loan} onClick={repay}>
           {loan ? `Repay ${xrp(loan.outstanding)} XRP` : 'Loan repaid'}
         </button>
       </div>

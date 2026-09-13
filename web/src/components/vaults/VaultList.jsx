@@ -30,11 +30,10 @@ export default function VaultList({ vaults, nowMs, loading, error, onOpen }) {
   const selectedIssuer = issuers.find((i) => i.address === issuer)
 
   return (
-    <div className="card">
-      <h2>Funds</h2>
+    <>
       <p className="lede">
-        Browse funds issued on the platform. Deposits are only accepted during a fund's
-        Subscription window, which the ledger enforces.
+        Funds raising now. Deposits are only accepted inside a fund's subscription window — the
+        ledger refuses anything later, and the rail on each card shows where the fund sits in its term.
       </p>
 
       <div className="filters">
@@ -108,6 +107,6 @@ export default function VaultList({ vaults, nowMs, loading, error, onOpen }) {
           <VaultCard key={entry.vault_id} entry={entry} nowMs={nowMs} onOpen={onOpen} />
         ))}
       </div>
-    </div>
+    </>
   )
 }

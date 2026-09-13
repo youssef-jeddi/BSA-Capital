@@ -99,7 +99,7 @@ export default function Borrower({ session, address }) {
    * Leg 2 — counterparty signs with signature_target so the wallet uses the CPT
    * hash prefix, then WE submit: with signature_target set the wallet signs only.
    */
-  async function coSign() {
+  async function coSign(held) {
     setBusy(true)
     setSteps([{ label: 'LoanSet — counterparty signature', state: 'pending' }])
     try {
@@ -145,19 +145,38 @@ export default function Borrower({ session, address }) {
 
   const vaultPhase = ctx ? phaseOf(ctx.vault, nowMs) : null
 
-  return (
-    <div className="card">
-      <h2>Borrower</h2>
+  const drawn = loans.reduce((t, l) => t + Number(l.PrincipalOutstanding ?? 0), 0)
 
-      <fieldset>
-        <legend>My loans</legend>
+  return (
+    <>
+      <p className="lede">
+        Your credit facility. Draws are uncollateralised two-party loans under a fund's broker, and
+        no draw may mature after the fund's own redemption date.
+      </p>
+
+      {loans.length > 0 && (
+        <div className="stats">
+          <div><span>Open draws</span><b>{loans.length}</b>
+               <small>against this account</small></div>
+          <div><span>Principal outstanding</span><b>{(drawn / 1e6).toLocaleString('en-US', { maximumFractionDigits: 2 })}</b>
+               <small>XRP still owed</small></div>
+          <div><span>Impaired</span>
+               <b className={loans.some((l) => loanState(l) !== 'current') ? 'overdue' : undefined}>
+                 {loans.filter((l) => loanState(l) !== 'current').length}
+               </b>
+               <small>loans past their grace period</small></div>
+        </div>
+      )}
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="sect">Your loans</div>
         {loans.length === 0
           ? <p className="dim">No loans against this account yet.</p>
           : loans.map((l) => <LoanRow key={l.index} loan={l} nowMs={nowMs} busy={busy} onPay={pay} />)}
-      </fieldset>
+      </div>
 
-      <fieldset>
-        <legend>Request a loan</legend>
+      <div className="card">
+        <div className="sect">Request a draw</div>
         <p className="dim">
           Choose the fund you want to borrow from. Only funds in their Investment phase can
           originate a loan.
@@ -212,17 +231,16 @@ export default function Borrower({ session, address }) {
 
         {termErrors.length > 0 && <ul className="errors">{termErrors.map((e) => <li key={e}>{e}</li>)}</ul>}
 
-        <button className="primary"
+        <button
                 disabled={busy || !ctx || selfDealing || termErrors.length > 0 || !access.allowed}
                 onClick={signRequest}>
           Sign request (no submit)
         </button>
-
-      </fieldset>
+      </div>
 
       {awaiting.length > 0 && (
-        <fieldset>
-          <legend>Waiting for your signature</legend>
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="sect">Waiting for your signature</div>
           <p className="dim">
             A borrower has signed these terms and needs you, as the lender, to counter-sign. Nothing
             reaches the ledger until you do.
@@ -236,7 +254,7 @@ export default function Borrower({ session, address }) {
                 </small>
               </div>
               <div className="row">
-                <button className="primary" disabled={busy} onClick={() => coSign(held)}>
+                <button disabled={busy} onClick={() => coSign(held)}>
                   Counter-sign &amp; submit
                 </button>
                 <button className="ghost" disabled={busy}
@@ -246,11 +264,11 @@ export default function Borrower({ session, address }) {
               </div>
             </div>
           ))}
-        </fieldset>
+        </div>
       )}
 
       <Steps steps={steps} />
-    </div>
+    </>
   )
 }
 

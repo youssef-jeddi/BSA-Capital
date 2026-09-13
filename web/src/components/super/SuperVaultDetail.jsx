@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react'
 import Steps from '../Steps.jsx'
 import { getDeploymentAccount } from '../../lib/api.js'
 import { draftFromVault, stageRelaunch } from '../../lib/relaunch.js'
-import PhaseBadge from '../vaults/PhaseBadge.jsx'
+
+/** Phase as a word, for use inside a sentence rather than as a corner badge. */
+const PhaseInline = ({ phase, nowMs }) =>
+  phase ? <>{phase.phase.toLowerCase()}{phase.endsAt ? `, ${countdown(phase.endsAt - nowMs)} left` : ''}</> : <>unreadable</>
 import AllocationBreakdown from './AllocationBreakdown.jsx'
 import UnwindPanel from './UnwindPanel.jsx'
-import { assetToDisplay, countdown } from '../../lib/ledger.js'
+import { countdown } from '../../lib/ledger.js'
 import { aggregateNav, bpsToPct } from '../../lib/superVault.js'
 import { useSuperVaultDeploy } from '../../hooks/useSuperVaultDeploy.js'
 import { dropsToXrp } from 'xrpl'
@@ -29,23 +32,30 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
   const raised = own?.vault ? Number(own.vault.AssetsTotal ?? 0) : null
 
   return (
-    <div className="card">
-      <button className="ghost sm" onClick={onBack}>← Super vaults</button>
+    <>
+      <button className="back" onClick={onBack}>Back to super vaults</button>
 
-      <div className="vaulthead" style={{ marginTop: 14 }}>
+      <div className="pagehead">
         <div>
-          <b style={{ fontSize: 18 }}>{entry.name}</b>
-          <span className={`tag st-${entry.status}`}>{entry.status}</span>
-          <div className="dim">{entry.curator_name} · {entry.strategy || 'Curated fund-of-funds'}</div>
+          <h1>{entry.name}</h1>
+          <div className="sub">
+            Curated by {entry.curator_name} · {entry.strategy || 'one deposit, several managers'}
+            <span className={`tag st-${entry.status}`}>{entry.status}</span>
+          </div>
         </div>
-        <PhaseBadge phase={own?.phase} nowMs={nowMs} />
+        <div className="figure">
+          <b>{own?.pps == null ? '—' : own.pps.toFixed(6)}</b>
+          <span>price per share · <PhaseInline phase={own?.phase} nowMs={nowMs} /></span>
+        </div>
       </div>
 
       <div className="stats">
-        <div><span>Raised</span><b>{raised == null ? '—' : `${xrp(raised)} XRP`}</b></div>
-        <div><span>Deployed NAV</span><b>{nav.counted ? `${xrp(nav.total)} XRP` : '—'}</b></div>
-        <div><span>Sub-funds</span><b>{positions.length}</b></div>
-        <div><span>Price per share</span><b>{own?.pps == null ? '—' : own.pps.toFixed(6)}</b></div>
+        <div><span>Raised</span><b>{raised == null ? '—' : xrp(raised)}</b>
+             <small>XRP subscribed into this vault</small></div>
+        <div><span>Deployed NAV</span><b>{nav.counted ? xrp(nav.total) : '—'}</b>
+             <small>value of the sub-fund positions</small></div>
+        <div><span>Sub-funds</span><b>{positions.length}</b>
+             <small>across {new Set(positions.map((p) => p.sub_vault_name)).size} managers</small></div>
       </div>
 
       {nav.missing > 0 && (
@@ -64,8 +74,8 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
         </p>
       )}
 
-      <fieldset>
-        <legend>Allocation</legend>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="sect">Allocation</div>
         <p className="dim">
           Price per share moves only at interest payments, so a blended figure is only as fresh
           as its least recently updated sub-fund. Per-fund ledger sequences are shown rather than
@@ -80,10 +90,10 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
               : null
           )}
         />
-      </fieldset>
+      </div>
 
-      <fieldset>
-        <legend>Deployment</legend>
+      <div className="card">
+        <div className="sect">Deployment</div>
         <ol className="deploysteps">
           <li className={own?.phase?.phase === 'Subscription' ? 'now' : 'done'}>
             <b>Raise</b> — depositors subscribe while the super vault is open
@@ -103,7 +113,7 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
 
         {isCurator && testAccountMatches && entry.status !== 'deployed' && (
           <>
-            <button className="primary full"
+            <button className="full"
                     disabled={busy || own?.phase?.phase !== 'Investment' || unfundable.length > 0}
                     onClick={deployAll}>
               {busy ? 'Deploying…' : 'Deploy capital into the funds'}
@@ -130,7 +140,7 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
               <button className="ghost sm" disabled={busy} onClick={discard}>Discard and re-sign</button>
             </div>
           ) : (
-            <button className="primary" disabled={busy || own?.phase?.phase !== 'Investment'} onClick={borrow}>
+            <button disabled={busy || own?.phase?.phase !== 'Investment'} onClick={borrow}>
               Originate the curator loan
             </button>
           )
@@ -139,7 +149,7 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
         {!isCurator && isDeployer && pending && (
           <div className="handoff">
             <div className="handoff-head"><b>Awaiting your counter-signature</b></div>
-            <button className="primary" disabled={busy} onClick={counterSign}>Counter-sign &amp; submit</button>
+            <button disabled={busy} onClick={counterSign}>Counter-sign &amp; submit</button>
           </div>
         )}
 
@@ -153,15 +163,15 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
             The deployment account can now fund each allocation above.
           </p>
         )}
-      </fieldset>
+      </div>
 
       {entry.status === 'deployed' && (isCurator || isDeployer) && (
         <UnwindPanel entry={entry} nowMs={nowMs} onRefresh={onRefresh} />
       )}
 
       {onRelaunch && isCurator && (
-        <fieldset>
-          <legend>Next series</legend>
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="sect">Next series</div>
           <p className="dim">
             Carries the strategy, deployment account and the full allocation plan into a new super
             vault. Only the dates need choosing.
@@ -170,10 +180,10 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
                   onClick={() => { stageRelaunch({ ...draftFromVault({ ...entry, kind: 'super' }) }); onRelaunch(entry) }}>
             Relaunch as next series
           </button>
-        </fieldset>
+        </div>
       )}
 
       <Steps steps={steps} />
-    </div>
+    </>
   )
 }

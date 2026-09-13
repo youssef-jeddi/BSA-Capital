@@ -61,6 +61,5 @@ export function useBoundaryRefresh(boundaries, refresh, nowMs) {
     if (next == null) return
     const t = setTimeout(refresh, Math.min(next - nowMs + 1500, 2147483000))
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boundaries.join(','), refresh])
+    }, [boundaries.join(','), refresh])
 }

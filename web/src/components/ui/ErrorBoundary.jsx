@@ -23,7 +23,7 @@ export default class ErrorBoundary extends Component {
         </p>
         <pre>{String(this.state.error?.message ?? this.state.error)}</pre>
         <div className="row">
-          <button className="primary" onClick={() => this.setState({ error: null })}>Try again</button>
+          <button onClick={() => this.setState({ error: null })}>Try again</button>
           <button className="ghost" onClick={() => window.location.reload()}>Reload</button>
         </div>
       </div>

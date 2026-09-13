@@ -3,6 +3,7 @@ import { signTransaction } from '../wallet.js'
 import DateTimeField from './ui/DateTimeField.jsx'
 import { describeGap, inMinutes } from '../lib/schedule.js'
 import Steps from './Steps.jsx'
+import LifecycleRail from './ui/LifecycleRail.jsx'
 import { rememberVault } from '../lib/store.js'
 import { recordVault, resolveZoneDomain } from '../lib/api.js'
 import ZonePicker from './zones/ZonePicker.jsx'
@@ -14,7 +15,17 @@ import {
   metadataWarnings, validateForm,
 } from '../lib/vault.js'
 
-const EXPLORER = 'https://devnet.xrpl.org'
+const preview = (ms) => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+
+/** Human span between two instants, in the unit that reads best. */
+function spanDays(a, b) {
+  const mins = Math.round((b - a) / 60000)
+  if (mins < 90) return `${mins} min`
+  const hours = Math.round(mins / 60)
+  if (hours < 48) return `${hours} h`
+  return `${Math.round(hours / 24)} days`
+}
+
 
 const INITIAL = {
   assetType: 'XRP', iouCurrency: '', iouIssuer: '', mptIssuanceId: '',
@@ -108,8 +119,8 @@ export default function CreateVault({ session, address, company }) {
         zones: f.zones,
         domain_id: form.domainId || null,
         tx_hash: vaultRes.hash,
-      }).catch((e) => push({ label: 'Index warning', state: 'info',
-                             detail: `Vault created on-ledger but not listed: ${e.message}` }))
+      }).catch((e) => push({ label: 'Not listed', state: 'fail',
+                             error: `The vault exists on-ledger but could not be added to the index, so nobody will see it in Invest: ${e.message}` }))
       push({ label: 'Vault created', state: 'info',
              detail: `VaultID ${vault.id}\nShare MPT ${vault.fields?.ShareMPTID ?? '—'}\nNow listed for investors in Invest.` })
 
@@ -119,7 +130,8 @@ export default function CreateVault({ session, address, company }) {
         await recordVault({
           vault_id: vault.id, company_address: address, loan_broker_id: broker.id,
           name: f.vaultName || `Fund ${vault.id.slice(0, 6)}`,
-        }).catch(() => {})
+        }).catch((e) => push({ label: 'Broker not indexed', state: 'fail',
+                               error: `Borrowers will not find this fund until it is re-indexed: ${e.message}` }))
         push({ label: 'Broker registered', state: 'info',
                detail: `LoanBrokerID ${broker.id}\nBorrowers can now request a loan from this fund.` })
       }
@@ -139,16 +151,20 @@ export default function CreateVault({ session, address, company }) {
     } finally { setBusy(false) }
   }
 
+  const subMs = f.subscriptionAt ? Date.parse(f.subscriptionAt) : null
+  const redMs = f.redemptionAt ? Date.parse(f.redemptionAt) : null
+
   return (
-    <div className="card">
-      <h2>Issue a fund</h2>
+    <>
       <p className="lede">
         {company
           ? <>Deploying as <b>{company.name}</b>. Configure the vault, then register a loan broker against it. One wallet approval per transaction.</>
           : <>Configure and deploy a vault, then register a loan broker against it. One wallet approval per transaction.</>}
       </p>
 
-      <fieldset>
+      <div className="issuegrid">
+      <div className="card">
+      <fieldset style={{ borderTop: 0, paddingTop: 0 }}>
         <legend>Asset</legend>
         <div className="chips">
           {['XRP', 'IOU', 'MPT'].map((t) => (
@@ -275,12 +291,51 @@ export default function CreateVault({ session, address, company }) {
         </ul>
       )}
 
-      <button className="primary full" disabled={busy || errors.length > 0} onClick={submit}>
-        {busy ? 'Awaiting wallet…' : 'Create vault & register broker'}
-      </button>
+      <div className="row" style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 16, marginTop: 18 }}>
+        <button className="dark" disabled={busy || errors.length > 0} onClick={submit}>
+          {busy ? 'Awaiting wallet…' : 'Create vault & register broker'}
+        </button>
+        <span style={{ fontSize: 11.5, color: 'var(--faint)', fontFamily: 'var(--mono)' }}>
+          VaultCreate + LoanBrokerSet · ~2 ledgers
+        </span>
+      </div>
 
       <Steps steps={steps} />
+      </div>
 
-    </div>
+      {/* What the six fields above actually become, kept in view while you fill them. */}
+      <aside className="card preview">
+        <div className="sect">What you are creating</div>
+        <div className="serif" style={{ fontSize: 17, fontWeight: 600, lineHeight: 1.3, marginBottom: 16 }}>
+          {f.vaultName || 'Untitled fund'}
+        </div>
+
+        {subMs && redMs && redMs > subMs ? (
+          <>
+            <LifecycleRail start={Date.now()} sub={subMs} red={redMs} nowMs={Date.now()}
+                           legend={['today', preview(subMs), preview(redMs)]} />
+            <div className="summary" style={{ marginTop: 18 }}>
+              <div><span>Subscription window</span><b>{spanDays(Date.now(), subMs)}</b></div>
+              <div><span>Investment term</span><b>{spanDays(subMs, redMs)}</b></div>
+              <div><span>Loan maturity ceiling</span><b>{preview(redMs)}</b></div>
+              <div><span>Shares</span><b>{f.nonTransferable ? 'non-transferable' : 'transferable'}</b></div>
+            </div>
+          </>
+        ) : (
+          <p className="dim">Set both lifecycle dates to see the fund's term.</p>
+        )}
+
+        <p style={{ marginTop: 16, fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.6 }}>
+          {f.zones.length
+            ? <>Gated to <b style={{ color: 'var(--fg)' }}>{f.zones.join(', ')}</b>. The ledger refuses
+               a deposit from anyone without an accepted credential for one of those zones.</>
+            : <>Open to every investor. Pick at least one zone to gate the fund with a permissioned domain.</>}
+        </p>
+        <p style={{ marginTop: 12, fontSize: 11.5, color: 'var(--faint)', lineHeight: 1.6 }}>
+          Nothing here can be edited after creation — that immutability is the point.
+        </p>
+      </aside>
+      </div>
+    </>
   )
 }

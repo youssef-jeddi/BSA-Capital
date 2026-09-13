@@ -4,12 +4,14 @@ import { startPairing, restoreSession, disconnect, accountOf, allSessions, getCl
 import { setProofSigner, setProofListener, clearAuthSession } from './lib/api.js'
 import Borrower from './components/Borrower.jsx'
 import Funds from './components/Funds.jsx'
-import Manage from './components/Manage.jsx'
+import CreateVault from './components/CreateVault.jsx'
+import MyVaults from './components/vaults/MyVaults.jsx'
 import Positions from './components/vaults/Positions.jsx'
 import Onboarding from './components/onboarding/Onboarding.jsx'
 import CompanyForm from './components/onboarding/CompanyForm.jsx'
 import UserForm from './components/onboarding/UserForm.jsx'
 import { useProfile } from './hooks/useProfile.js'
+import { useHolderZones } from './hooks/useZones.js'
 import DemoClock from './components/ui/DemoClock.jsx'
 import ErrorBoundary from './components/ui/ErrorBoundary.jsx'
 import Landing from './components/Landing.jsx'
@@ -18,37 +20,60 @@ const WSS = 'wss://s.devnet.rippletest.net:51233/'
 const EXPLORER = 'https://devnet.xrpl.org'
 
 /**
- * Registration is exclusive (an address is a company or an individual), but a
- * company can still invest: a curator allocating across other funds is the
- * whole super-vault idea, so 'Invest' is not investor-only.
- */
-/**
- * Four or five destinations, not seven.
+ * Navigation is a permanent rail, grouped by what you came to do.
  *
- * Invest and Marketplace are the primary and secondary market for the same asset,
- * so they live together under Funds. Issue and My vaults are both fund management,
- * so they live together under Manage.
+ * Registration is exclusive (an address is a company or an individual), but a
+ * company can still invest: a curator allocating across other funds is the whole
+ * super-vault idea, so INVEST is not investor-only.
  */
-const TABS_BY_ROLE = {
+const NAV_BY_ROLE = {
   company: [
-    { id: 'funds', label: 'Funds' },
-    { id: 'positions', label: 'Portfolio' },
-    { id: 'manage', label: 'Manage' },
-    { id: 'borrower', label: 'Borrow' },
-    { id: 'profile', label: 'Profile' },
+    { group: 'Invest', items: [
+      { id: 'market', label: 'Marketplace', title: 'Marketplace' },
+      { id: 'portfolio', label: 'Portfolio', title: 'Portfolio' },
+    ] },
+    { group: 'Issue', items: [
+      { id: 'issue', label: 'Launch a fund', title: 'Launch a fund' },
+      { id: 'performance', label: 'Fund performance', title: 'Fund performance' },
+    ] },
+    { group: 'Curate', items: [
+      { id: 'curate', label: 'Super vaults', title: 'Super vaults' },
+    ] },
+    { group: 'Borrow', items: [
+      { id: 'borrow', label: 'Credit facility', title: 'Credit facility' },
+    ] },
+    { group: 'Account', items: [
+      { id: 'profile', label: 'Company profile', title: 'Company profile' },
+    ] },
   ],
   user: [
-    { id: 'funds', label: 'Funds' },
-    { id: 'positions', label: 'Portfolio' },
-    { id: 'profile', label: 'Profile' },
+    { group: 'Invest', items: [
+      { id: 'market', label: 'Marketplace', title: 'Marketplace' },
+      { id: 'portfolio', label: 'Portfolio', title: 'Portfolio' },
+    ] },
+    { group: 'Account', items: [
+      { id: 'profile', label: 'Your profile', title: 'Your profile' },
+    ] },
   ],
 }
+
+const flatten = (nav) => nav.flatMap((g) => g.items)
 
 const savedProjectId = () =>
   import.meta.env.VITE_WC_PROJECT_ID || localStorage.getItem('wc_project_id') || ''
 
 /** Only ask for it when the build has none: it is deployment config, not user input. */
 const NEEDS_PROJECT_ID = !import.meta.env.VITE_WC_PROJECT_ID
+
+/** Wall clock in the header, matching the design's ledger-time readout. */
+function useWallClock() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(t)
+  }, [])
+  return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
 
 export default function App() {
   const [projectId, setProjectId] = useState(savedProjectId)
@@ -59,7 +84,9 @@ export default function App() {
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
   const [balance, setBalance] = useState(null)
+  const [ledger, setLedger] = useState(null)
   const [tab, setTab] = useState(null)
+  const clock = useWallClock()
 
   const address = accountOf(session)
 
@@ -71,9 +98,13 @@ export default function App() {
     setProofListener(setAwaitingSignature)
     clearAuthSession()   // a different wallet must sign for itself
   }, [session, address])
+
   const { loading: profileLoading, role, profile, error: profileError, refresh: refreshProfile } = useProfile(address)
-  const tabs = TABS_BY_ROLE[role] ?? []
-  const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id
+  const { zones: heldZones } = useHolderZones(address)
+  const acceptedZones = heldZones.filter((z) => z.accepted).map((z) => z.zone)
+  const nav = NAV_BY_ROLE[role] ?? []
+  const items = flatten(nav)
+  const active = items.find((i) => i.id === tab) ?? items[0]
 
   useEffect(() => {
     if (!projectId) return
@@ -85,12 +116,14 @@ export default function App() {
   // Refetches whenever `bump` changes so a completed transaction updates the balance.
   const [bump, setBump] = useState(0)
   useEffect(() => {
-    if (!address) { setBalance(null); return }
+    if (!address) { setBalance(null); setLedger(null); return }
     let cancelled = false
     const c = new Client(WSS)
     c.connect()
-      .then(() => c.getXrpBalance(address))
-      .then((b) => { if (!cancelled) setBalance(b) })
+      .then(async () => {
+        const [b, l] = await Promise.all([c.getXrpBalance(address), c.getLedgerIndex()])
+        if (!cancelled) { setBalance(b); setLedger(l) }
+      })
       .catch(() => { if (!cancelled) setBalance('—') })
       .finally(() => c.disconnect().catch(() => {}))
     return () => { cancelled = true }
@@ -117,75 +150,125 @@ export default function App() {
     setBalance(null); setStatus('Disconnected.')
   }
 
-  return (
-    <main>
-      <header>
-        <div>
-          <h1>BSA Capital</h1>
-          <span className="net">XRPL Devnet · {CHAIN}</span>
+  /* Not connected: one full-width column, no navigation to speak of yet. */
+  if (!session) {
+    return (
+      <div className="shell solo">
+        <div className="pane">
+          <header className="topbar">
+            <h1>BSA Capital</h1>
+            <div className="meta"><span>XRPL Devnet · {CHAIN}</span></div>
+          </header>
+          <main>
+            <Landing>
+              <section className="card connect">
+                <h2>Get started</h2>
+                <p className="lede">
+                  Connect the XRPL Dev Wallet to browse funds, invest, or launch one of your own.
+                </p>
+
+                {NEEDS_PROJECT_ID && (
+                  <label className="field">
+                    <span className="field-label">WalletConnect project ID</span>
+                    <input value={projectId} onChange={(e) => setProjectId(e.target.value.trim())}
+                           placeholder="free at cloud.reown.com" spellCheck={false} />
+                    <small className="field-hint">
+                      Set <code>VITE_WC_PROJECT_ID</code> in <code>web/.env</code> to skip this.
+                    </small>
+                  </label>
+                )}
+
+                <button className="full" onClick={connect} disabled={busy || !projectId}>
+                  {busy ? 'Waiting for your wallet…' : 'Connect wallet'}
+                </button>
+
+                {uri && (
+                  <div className="uri">
+                    <p>
+                      In the wallet extension, open the <b>WalletConnect</b> icon, choose
+                      <b> Connect via WalletConnect</b>, and paste this:
+                    </p>
+                    <textarea readOnly value={uri} rows={3} onFocus={(e) => e.target.select()} />
+                    <button className="ghost" onClick={() => navigator.clipboard.writeText(uri)}>Copy link</button>
+                  </div>
+                )}
+              </section>
+            </Landing>
+            {status && <p className="status">{status}</p>}
+          </main>
         </div>
-        {session && (
-          <div className="who">
-            {sessions.length > 1 ? (
-              <select className="sm" value={session.topic}
-                      onChange={(e) => setSession(sessions.find((x) => x.topic === e.target.value))}>
-                {sessions.map((s) => (
-                  <option key={s.topic} value={s.topic}>{accountOf(s)}</option>
+      </div>
+    )
+  }
+
+  /* Connected but not yet registered: the shell exists, the rail has nothing in it. */
+  const registering = !profileLoading && !profileError && !role
+
+  return (
+    <div className={nav.length ? 'shell' : 'shell solo'}>
+      {nav.length > 0 && (
+        <aside className="sidebar">
+          <div className="brand">
+            <b>BSA Capital</b>
+            <span>XRPL DEVNET · {CHAIN}</span>
+          </div>
+
+          <nav className="sidenav">
+            {nav.map((g) => (
+              <div className="sidegroup" key={g.group}>
+                <small>{g.group.toUpperCase()}</small>
+                {g.items.map((item) => (
+                  <button key={item.id}
+                          className={active?.id === item.id ? 'sidelink on' : 'sidelink'}
+                          onClick={() => setTab(item.id)}>
+                    {item.label}
+                  </button>
                 ))}
+              </div>
+            ))}
+          </nav>
+
+          <div className="sidefoot">
+            {sessions.length > 1 ? (
+              <select value={session.topic}
+                      onChange={(e) => setSession(sessions.find((x) => x.topic === e.target.value))}>
+                {sessions.map((s) => <option key={s.topic} value={s.topic}>{accountOf(s)}</option>)}
               </select>
             ) : (
-              <a href={`${EXPLORER}/accounts/${address}`} target="_blank" rel="noreferrer">
-                {address.slice(0, 8)}…{address.slice(-6)}
-              </a>
-            )}
-            {profile && <span className="badge">{profile.name ?? profile.display_name}</span>}
-            <span>{balance === null ? '…' : `${balance} XRP`}</span>
-            <button className="ghost sm" onClick={() => setBump((n) => n + 1)}>Refresh</button>
-            <button className="ghost sm" onClick={() => { setPairing(true); connect() }}>+ Wallet</button>
-            <button className="ghost sm" onClick={drop}>Log out</button>
-          </div>
-        )}
-      </header>
-
-      {!session ? (
-        <Landing>
-          <section className="card connect">
-            <h2>Get started</h2>
-            <p className="lede">
-              Connect the XRPL Dev Wallet to browse funds, invest, or launch one of your own.
-            </p>
-
-            {NEEDS_PROJECT_ID && (
-              <label className="field">
-                <span className="field-label">WalletConnect project ID</span>
-                <input value={projectId} onChange={(e) => setProjectId(e.target.value.trim())}
-                       placeholder="free at cloud.reown.com" spellCheck={false} />
-                <small className="field-hint">
-                  Set <code>VITE_WC_PROJECT_ID</code> in <code>web/.env</code> to skip this.
-                </small>
-              </label>
-            )}
-
-            <button className="primary full" onClick={connect} disabled={busy || !projectId}>
-              {busy ? 'Waiting for your wallet…' : 'Connect wallet'}
-            </button>
-
-            {uri && (
-              <div className="uri">
-                <p>
-                  In the wallet extension, open the <b>WalletConnect</b> icon, choose
-                  <b> Connect via WalletConnect</b>, and paste this:
-                </p>
-                <textarea readOnly value={uri} rows={3} onFocus={(e) => e.target.select()} />
-                <button className="ghost" onClick={() => navigator.clipboard.writeText(uri)}>Copy link</button>
+              <div className="acct">
+                <span className="livedot" />
+                <a href={`${EXPLORER}/accounts/${address}`} target="_blank" rel="noreferrer">
+                  {address.slice(0, 5)}…{address.slice(-4)}
+                </a>
               </div>
             )}
-          </section>
-        </Landing>
-      ) : (
-        <>
+            <div className="bal">{balance === null ? '…' : `${balance} XRP`}</div>
+            <div className="note">
+              {acceptedZones.length
+                ? <>Verified <b>{acceptedZones.join(' · ')}</b> — credentials accepted</>
+                : <>No zone credential yet — request one when a gated fund asks</>}
+            </div>
+            <div className="acts">
+              <button onClick={() => setBump((n) => n + 1)}>Refresh</button>
+              <button onClick={() => { setPairing(true); connect() }}>+ Wallet</button>
+              <button onClick={drop}>Log out</button>
+            </div>
+          </div>
+        </aside>
+      )}
+
+      <div className="pane">
+        <header className="topbar">
+          <h1>{registering ? 'Create your account' : (active?.title ?? 'BSA Capital')}</h1>
+          <div className="meta">
+            <span>{clock}</span>
+            {ledger && <span>ledger {ledger.toLocaleString('en-US').replace(/,/g, ' ')}</span>}
+          </div>
+        </header>
+
+        <main className={active?.id === 'issue' || active?.id === 'borrow' ? 'narrow' : undefined}>
           {pairing && uri && (
-            <div className="card uri">
+            <div className="card uri" style={{ marginBottom: 20 }}>
               <p>Switch the extension to the <b>other account</b> first, then paste this and Approve:</p>
               <textarea readOnly value={uri} rows={4} onFocus={(e) => e.target.select()} />
               <div className="row">
@@ -204,37 +287,38 @@ export default function App() {
                 {profileError}. The onboarding API should be on :8787 — start it with
                 <code> npm run api</code>. Not registering you again until it answers.
               </p>
-              <button className="primary" onClick={refreshProfile}>Retry</button>
+              <button onClick={refreshProfile}>Retry</button>
             </div>
           ) : !role ? (
             <Onboarding address={address} onDone={refreshProfile} />
           ) : (
             <>
               <DemoClock />
-              <nav className="tabs">
-                {tabs.map((t) => (
-                  <button key={t.id} className={activeTab === t.id ? 'tab on' : 'tab'}
-                          onClick={() => setTab(t.id)}>
-                    {t.label}
-                  </button>
-                ))}
-              </nav>
-              <ErrorBoundary key={activeTab}>
-              {activeTab === 'funds' && <Funds key={address} session={session} address={address} />}
-              {activeTab === 'positions' && <Positions key={address} session={session} address={address} />}
-              {activeTab === 'manage' && (
-                <Manage key={address} session={session} address={address} company={profile}
-                        onGoToFunds={() => setTab('funds')} />
-              )}
-              {activeTab === 'borrower' && <Borrower key={address} session={session} address={address} />}
-              {activeTab === 'profile' && (role === 'company'
-                ? <CompanyForm address={address} existing={profile} onDone={refreshProfile} />
-                : <UserForm address={address} existing={profile} onDone={refreshProfile} />)}
+              <ErrorBoundary key={active?.id}>
+                {active?.id === 'market' && <Funds key={address} session={session} address={address} />}
+                {active?.id === 'portfolio' && <Positions key={address} session={session} address={address} />}
+                {active?.id === 'issue' && (
+                  <CreateVault key={address} session={session} address={address} company={profile} />
+                )}
+                {active?.id === 'performance' && (
+                  <MyVaults key={address} session={session} address={address} company={profile}
+                            only="fund" onGoToInvest={() => setTab('market')} />
+                )}
+                {active?.id === 'curate' && (
+                  <MyVaults key={`${address}-super`} session={session} address={address} company={profile}
+                            only="super" onGoToInvest={() => setTab('market')} />
+                )}
+                {active?.id === 'borrow' && <Borrower key={address} session={session} address={address} />}
+                {active?.id === 'profile' && (role === 'company'
+                  ? <CompanyForm address={address} existing={profile} onDone={refreshProfile} />
+                  : <UserForm address={address} existing={profile} onDone={refreshProfile} />)}
               </ErrorBoundary>
             </>
           )}
-        </>
-      )}
+
+          {status && <p className="status">{status}</p>}
+        </main>
+      </div>
 
       {awaitingSignature && (
         <div className="signbar" role="status">
@@ -248,8 +332,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-      {status && <p className="status">{status}</p>}
-    </main>
+    </div>
   )
 }

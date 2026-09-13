@@ -8,7 +8,20 @@ import { dropsToXrpNum } from '../../lib/market.js'
 
 const EXPLORER = 'https://devnet.xrpl.org'
 
-function Listing({ row, address, session, onChanged }) {
+const xrp = (n) => (n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: 2 }))
+
+/** Days until a fund's redemption opens, which is when the buyer gets their money. */
+function daysTo(row) {
+  const ms = row.snapshot?.redemption_ms
+  if (!ms) return null
+  return Math.max(0, Math.round((ms - Date.now()) / 86400000))
+}
+
+/**
+ * One row of the book. Buying and cancelling expand underneath rather than
+ * navigating away, so the rest of the book stays on screen for comparison.
+ */
+function Row({ row, address, session, onChanged }) {
   const [open, setOpen] = useState(false)
   const [steps, setSteps] = useState([])
   const [busy, setBusy] = useState(false)
@@ -16,7 +29,7 @@ function Listing({ row, address, session, onChanged }) {
   const ask = dropsToXrpNum(row.ask_drops)
   const nav = dropsToXrpNum(row.nav_drops_total)
   const mine = row.seller_address === address
-  const phase = row.snapshot?.phase
+  const days = daysTo(row)
 
   async function cancel() {
     setBusy(true); setSteps([{ label: 'Custody returns the shares', state: 'pending' }])
@@ -30,54 +43,55 @@ function Listing({ row, address, session, onChanged }) {
   }
 
   return (
-    <div className="listing">
-      <div className="vaulthead">
+    <>
+      <div className={mine ? 'table-row book mine' : 'table-row book'}>
         <div>
-          <b>{row.vault_name ?? row.vault_id.slice(0, 12)}</b>
-          {mine && <span className="tag">your listing</span>}
-          <div className="dim">
-            {row.issuer_name} · {Number(row.shares).toLocaleString()} shares
-            {phase && ` · ${phase}`}
+          <div className="name">{row.vault_name ?? row.vault_id.slice(0, 12)}</div>
+          <div className="who">
+            {mine ? 'your listing' : `${row.seller_address.slice(0, 4)}…${row.seller_address.slice(-4)}`}
+            {days != null && ` · ${days} days to redemption`}
+            {row.issuer_name && ` · ${row.issuer_name}`}
           </div>
-          <div style={{ marginTop: 6 }}><ZoneBadges zones={row.vault_zones} /></div>
+          <div style={{ marginTop: 5 }}><ZoneBadges zones={row.vault_zones} compact /></div>
         </div>
-        <div className="asking">
-          <b>{ask?.toFixed(6)} XRP</b>
+        <div className="num">{Number(row.shares).toLocaleString('en-US')}</div>
+        <div className="num soft">{xrp(nav)}</div>
+        <div className="num">
+          {xrp(ask)}
           {row.discount_pct != null && (
-            <span className={row.discount_pct >= 0 ? 'off' : 'over'}>
-              {row.discount_pct >= 0
-                ? `${row.discount_pct.toFixed(2)}% below NAV`
-                : `${Math.abs(row.discount_pct).toFixed(2)}% above NAV`}
-            </span>
+            <small style={row.discount_pct >= 0 ? undefined : { color: 'var(--warn)' }}>
+              {Math.abs(row.discount_pct).toFixed(2)}% {row.discount_pct >= 0 ? 'below' : 'above'}
+            </small>
           )}
         </div>
+        <div className="num strong">
+          {nav && ask && days > 0 ? `${(((nav - ask) / ask) * (365 / days) * 100).toFixed(1)}%` : '—'}
+        </div>
+        <div>
+          {row.status === 'open' && (mine
+            ? <button className="ghost sm danger" disabled={busy} onClick={cancel}>Cancel</button>
+            : <button className="sm" onClick={() => setOpen((v) => !v)}>{open ? 'Close' : 'Buy'}</button>)}
+          {row.status === 'sold' && (
+            row.delivery_hash
+              ? <a className="mono" href={`${EXPLORER}/transactions/${row.delivery_hash}`}
+                   target="_blank" rel="noreferrer">sold</a>
+              : <span className="dim" style={{ margin: 0 }}>sold</span>
+          )}
+          {row.status === 'cancelled' && <span className="dim" style={{ margin: 0 }}>cancelled</span>}
+        </div>
       </div>
 
-      <div className="stats">
-        <div><span>Asking</span><b>{ask?.toFixed(6)} XRP</b></div>
-        <div><span>NAV of the shares</span><b>{nav == null ? '—' : `${nav.toFixed(6)} XRP`}</b></div>
-        <div><span>Seller</span><b className="mono">{row.seller_address.slice(0, 10)}…</b></div>
-        <div><span>Status</span><b>{row.status}</b></div>
-      </div>
-
-      {row.status === 'open' && (
-        mine
-          ? <div className="row"><button className="ghost" disabled={busy} onClick={cancel}>Cancel listing</button></div>
-          : open
-            ? <BuyPanel listing={row} session={session} address={address}
-                        onSettled={() => { setOpen(false); onChanged?.() }} onCancel={() => setOpen(false)} />
-            : <button className="primary" onClick={() => setOpen(true)}>Buy this position</button>
+      {(open || steps.length > 0) && (
+        <div className="table-expand">
+          {open && (
+            <BuyPanel listing={row} session={session} address={address}
+                      onSettled={() => { setOpen(false); onChanged?.() }}
+                      onCancel={() => setOpen(false)} />
+          )}
+          <Steps steps={steps} />
+        </div>
       )}
-
-      {row.status === 'sold' && (
-        <p className="dim">
-          Sold to <span className="mono">{row.buyer_address?.slice(0, 12)}…</span>
-          {row.delivery_hash && <> · <a href={`${EXPLORER}/transactions/${row.delivery_hash}`} target="_blank" rel="noreferrer">delivery</a></>}
-        </p>
-      )}
-
-      <Steps steps={steps} />
-    </div>
+    </>
   )
 }
 
@@ -87,12 +101,11 @@ export default function Marketplace({ session, address }) {
   const { listings, loading, error, refresh } = useMarket({ status })
 
   return (
-    <div className="card">
-      <h2>Marketplace</h2>
+    <>
       <p className="lede">
-        Fund positions for sale. During a fund's Investment phase a withdrawal is refused
-        with <code>tecTOO_SOON</code>, so holders who need liquidity early sell their shares
-        here instead, usually at a discount to net asset value.
+        Positions locked in a fund's investment phase. A withdrawal there is refused
+        with <code>tecTOO_SOON</code>, but the share token still transfers — so a holder who needs
+        cash sells to another verified investor at a discount to net asset value.
       </p>
 
       <div className="chips">
@@ -104,17 +117,35 @@ export default function Marketplace({ session, address }) {
 
       {error && <p className="status err">{error}</p>}
       {loading && !listings.length && <p className="status">Loading listings…</p>}
-      {!loading && !listings.length && (
+
+      {!loading && !listings.length ? (
         <p className="empty">
           {status === 'open'
-            ? 'Nothing for sale. A holder can list a locked position from My positions.'
+            ? 'Nothing for sale. A holder can list a locked position from Portfolio.'
             : `No ${status} listings.`}
         </p>
+      ) : (
+        <div className="table">
+          <div className="table-head book">
+            <span>Fund / seller</span>
+            <span className="num">Shares</span>
+            <span className="num">Fair value</span>
+            <span className="num">Ask</span>
+            <span className="num">Implied return</span>
+            <span />
+          </div>
+          {listings.map((row) => (
+            <Row key={row.id} row={row} address={address} session={session} onChanged={refresh} />
+          ))}
+        </div>
       )}
 
-      {listings.map((row) => (
-        <Listing key={row.id} row={row} address={address} session={session} onChanged={refresh} />
-      ))}
-    </div>
+      <p style={{ margin: '14px 0 0', fontSize: 11.5, color: 'var(--faint)',
+                  lineHeight: 1.6, maxWidth: '74ch' }}>
+        Settlement runs through a custody account that only ever holds share tokens: the seller pays
+        shares to custody, the buyer pays the seller directly, custody releases. Eligibility is
+        re-checked on-ledger immediately before the shares move.
+      </p>
+    </>
   )
 }

@@ -128,7 +128,7 @@ export default function CreateSuperVault({ session, address, company, candidates
 
   return (
     <div className="card">
-      <button className="ghost sm" onClick={onCancel}>← Super vaults</button>
+      <button className="back" onClick={onCancel}>Back to super vaults</button>
       <h2 style={{ marginTop: 14 }}>Launch a super vault</h2>
       <p className="lede">
         A curated fund-of-funds. Depositors hold one position; you allocate the raise
@@ -192,7 +192,7 @@ export default function CreateSuperVault({ session, address, company, candidates
 
       <ErrorList errors={[...localErrors, ...serverErrors]} />
 
-      <button className="primary full" disabled={busy || localErrors.length > 0} onClick={submit}>
+      <button className="full" disabled={busy || localErrors.length > 0} onClick={submit}>
         {busy ? 'Awaiting wallet…' : 'Create super vault'}
       </button>
 

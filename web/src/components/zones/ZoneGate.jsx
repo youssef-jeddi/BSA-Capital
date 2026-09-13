@@ -85,7 +85,7 @@ export default function ZoneGate({ vaultZones, access, session, address, issuer,
         I confirm I am resident in {zoneLabel(zone)} and eligible to invest in this fund.
       </label>
 
-      <button className="primary" disabled={busy || !attested} onClick={verify}>
+      <button disabled={busy || !attested} onClick={verify}>
         {busy ? 'Verifying…'
           : alreadyIssued ? `Accept the ${zone} credential`
           : `Get verified for ${zone}`}

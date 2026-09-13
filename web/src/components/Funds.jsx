@@ -5,11 +5,11 @@ import Marketplace from './market/Marketplace.jsx'
 /**
  * Both places you can buy a position, under one heading.
  *
- * "Invest" and "Marketplace" were sibling top-level tabs, which read as unrelated
- * features. They are the primary and secondary market for the same asset.
+ * "Invest" and "Marketplace" were sibling top-level destinations, which read as
+ * unrelated features. They are the primary and secondary market for the same asset.
  */
 const TABS = [
-  { id: 'primary', label: 'New funds', hint: 'Subscribe while a fund is still raising' },
+  { id: 'primary', label: 'New issues', hint: 'Subscribe while a fund is still raising' },
   { id: 'secondary', label: 'Resale market', hint: 'Buy a locked position from another investor' },
 ]
 

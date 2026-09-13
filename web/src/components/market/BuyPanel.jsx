@@ -90,7 +90,7 @@ export default function BuyPanel({ listing, session, address, onSettled, onCance
             your own wallet, like a trust line: <code>MPTokenAuthorize</code> on the share token.
             Without it the transfer is refused with <code>tecNO_AUTH</code>.
           </p>
-          <button className="primary" disabled={busy} onClick={optIn}>
+          <button disabled={busy} onClick={optIn}>
             {busy ? 'Opting in…' : 'Opt in'}
           </button>
         </div>
@@ -103,7 +103,7 @@ export default function BuyPanel({ listing, session, address, onSettled, onCance
             share token.
           </p>
           <div className="row">
-            <button className="primary" disabled={busy} onClick={buy}>
+            <button disabled={busy} onClick={buy}>
               {busy ? 'Buying…' : `Pay the seller and receive ${Number(listing.shares).toLocaleString()} shares`}
             </button>
             <button className="ghost" disabled={busy} onClick={onCancel}>Back</button>

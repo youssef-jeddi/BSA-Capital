@@ -47,7 +47,7 @@ export default function UserForm({ address, existing, onDone }) {
 
       <ErrorList errors={errors} />
 
-      <button className="primary full" type="submit" disabled={busy}>
+      <button className="full" type="submit" disabled={busy}>
         {busy ? 'Saving…' : existing ? 'Save changes' : 'Register as investor'}
       </button>
     </form>

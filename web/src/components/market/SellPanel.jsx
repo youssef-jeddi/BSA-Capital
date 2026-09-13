@@ -111,7 +111,7 @@ export default function SellPanel({ position, session, address, onListed, onCanc
       {errors.length > 0 && <ul className="errors">{errors.map((e) => <li key={e}>{e}</li>)}</ul>}
 
       <div className="row">
-        <button className="primary" disabled={busy || errors.length > 0} onClick={list}>
+        <button disabled={busy || errors.length > 0} onClick={list}>
           {busy ? 'Listing…' : 'List for sale'}
         </button>
         <button className="ghost" disabled={busy} onClick={onCancel}>Cancel</button>

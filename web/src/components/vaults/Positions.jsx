@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { dropsToXrp } from 'xrpl'
+import { dropsToXrp, rippleTimeToUnixTime } from 'xrpl'
 import Steps from '../Steps.jsx'
 import PhaseBadge from './PhaseBadge.jsx'
+import LifecycleRail from '../ui/LifecycleRail.jsx'
 import { usePositions } from '../../hooks/usePositions.js'
 import { useClock } from '../../hooks/useClock.js'
 import { useVaultActions } from '../../hooks/useVaultActions.js'
@@ -27,6 +28,13 @@ function Position({ p, nowMs, session, address, onSettled }) {
         <PhaseBadge phase={p.phase} nowMs={nowMs} />
       </div>
 
+      {p.vault && (
+        <div style={{ margin: '14px 0 4px' }}>
+          <LifecycleRail sub={rippleTimeToUnixTime(p.vault.SubscriptionDate)}
+                         red={rippleTimeToUnixTime(p.vault.RedemptionDate)} nowMs={nowMs} />
+        </div>
+      )}
+
       <div className="stats">
         <div><span>Shares</span><b>{p.shares.toLocaleString()}</b></div>
         <div><span>Price per share</span><b>{p.pps == null ? '—' : p.pps.toFixed(6)}</b></div>
@@ -42,7 +50,7 @@ function Position({ p, nowMs, session, address, onSettled }) {
       {p.canWithdraw ? (
         open ? (
           <div className="row" style={{ marginTop: 12 }}>
-            <button className="primary" disabled={busy}
+            <button disabled={busy}
                     onClick={() => withdraw(String(p.shares), 'shares')}>
               Withdraw all {p.shares.toLocaleString()} shares
             </button>
@@ -62,7 +70,7 @@ function Position({ p, nowMs, session, address, onSettled }) {
               <code> tecTOO_SOON</code>. The shares still transfer, so selling is your only
               way out before Redemption.
             </p>
-            <button className="primary" onClick={() => setSelling(true)}>Sell this position</button>
+            <button onClick={() => setSelling(true)}>Sell this position</button>
           </>
         )
       )}
@@ -80,17 +88,30 @@ export default function Positions({ session, address }) {
   const total = positions.reduce((s, p) => s + (p.value ?? 0), 0)
   const locked = positions.filter((p) => !p.canWithdraw).length
 
+  const managers = new Set(positions.map((p) => p.issuer).filter(Boolean)).size
+
   return (
-    <div className="card">
-      <h2>My positions</h2>
+    <>
       <p className="lede">Every fund where this wallet holds shares, valued from the ledger.</p>
 
       {positions.length > 0 && (
         <div className="stats">
-          <div><span>Positions</span><b>{positions.length}</b></div>
-          <div><span>Total value</span><b>{xrp(total)} XRP</b></div>
-          <div><span>Withdrawable now</span><b>{positions.length - locked}</b></div>
-          <div><span>Locked</span><b>{locked}</b></div>
+          <div>
+            <span>Total value</span><b>{xrp(total)}</b>
+            <small>XRP at today's net asset value</small>
+          </div>
+          <div>
+            <span>Positions</span><b>{positions.length}</b>
+            <small>across {managers || 1} manager{managers === 1 ? '' : 's'}</small>
+          </div>
+          <div>
+            <span>Locked</span><b>{locked}</b>
+            <small>{locked ? 'resale is the only exit' : 'nothing is locked'}</small>
+          </div>
+          <div>
+            <span>Withdrawable now</span><b>{positions.length - locked}</b>
+            <small>redeemable from the vault directly</small>
+          </div>
         </div>
       )}
 
@@ -98,8 +119,8 @@ export default function Positions({ session, address }) {
       {loading && !positions.length && <p className="status">Checking your holdings…</p>}
       {!loading && !positions.length && (
         <p className="empty">
-          You hold no vault shares yet. Browse <b>Invest</b> and deposit into a fund that is
-          still in its Subscription phase.
+          You hold no vault shares yet. Browse <b>Marketplace</b> and deposit into a fund that is
+          still in its subscription window.
         </p>
       )}
 
@@ -107,6 +128,6 @@ export default function Positions({ session, address }) {
         <Position key={p.vault_id} p={p} nowMs={nowMs} session={session}
                   address={address} onSettled={refresh} />
       ))}
-    </div>
+    </>
   )
 }

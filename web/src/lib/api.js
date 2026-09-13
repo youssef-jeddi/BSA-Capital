@@ -83,9 +83,11 @@ export async function proveControl(address) {
   }
 }
 
-async function request(path, options = {}) {
+async function request(path, { headers, ...options } = {}) {
   const res = await fetch(BASE + path, {
-    headers: { 'content-type': 'application/json' },
+    // Merge, never replace: a caller passing an Authorization header must not
+    // silently drop the content-type and have Fastify reject the body.
+    headers: { 'content-type': 'application/json', ...headers },
     ...options,
   })
   const body = await res.json().catch(() => null)
