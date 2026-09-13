@@ -44,6 +44,18 @@ async function main() {
     console.log(`Balance ${balance} XRP`)
   }
 
+  // A gated sub-fund refuses a deposit from an uncredentialed account, so the
+  // deployment account needs a credential for every zone before it can allocate.
+  const API = process.env.API ?? 'http://127.0.0.1:8787'
+  try {
+    const r = await fetch(`${API}/api/deployment-account/credentials`, { method: 'POST' })
+    const out = await r.json()
+    if (r.ok) console.log(`Zones: ${out.zones.map((z) => `${z.zone}${z.already ? '' : ' (new)'}`).join(', ')}`)
+    else console.log(`Zone credentials skipped: ${out.errors?.[0]}`)
+  } catch {
+    console.log(`Zone credentials skipped: the API is not running on ${API}. Start it and rerun.`)
+  }
+
   console.log(`\nSaved to api/data/supervault-account.json (gitignored)`)
   console.log(`Address ${record.address}`)
   console.log(`Explorer https://devnet.xrpl.org/accounts/${record.address}`)

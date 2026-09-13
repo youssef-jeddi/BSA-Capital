@@ -13,7 +13,10 @@
     "setup-zones": "node -e \"fetch('http://127.0.0.1:8787/api/zones/setup',{method:'POST'}).then(r=>r.json()).then(o=>console.log(JSON.stringify(o,null,2)))\"",
     "setup-custody": "node -e \"fetch('http://127.0.0.1:8787/api/market/custody/setup',{method:'POST'}).then(r=>r.json()).then(o=>console.log(JSON.stringify(o,null,2)))\"",
     "market-e2e": "node scripts/30-marketplace-e2e.mjs",
-    "test": "node test/run.mjs"
+    "test": "node test/run.mjs",
+    "reallocate-e2e": "node scripts/31-reallocate-e2e.mjs",
+    "times": "node scripts/plan-times.mjs",
+    "seed-realloc": "node scripts/32-seed-realloc-funds.mjs"
   },
   "dependencies": {
     "xrpl": "5.2.0-beta.1"

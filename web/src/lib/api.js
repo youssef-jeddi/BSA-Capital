@@ -144,6 +144,14 @@ export const depositAsDeployer = (superVaultId, subVaultId, amount, curator) =>
   postAs(curator, `/super-vaults/${superVaultId}/allocations/${subVaultId}/deposit`, { amount })
 
 export const getUnwindState = (superVaultId) => request(`/super-vaults/${superVaultId}/unwind`)
+
+/* Rebalancing mid-term: sell the locked position, then redeploy the cash. */
+export const exitPosition = (superVaultId, subVaultId, discount_bps, curator) =>
+  postAs(curator, `/super-vaults/${superVaultId}/allocations/${subVaultId}/exit`, { discount_bps })
+export const abandonExit = (superVaultId, subVaultId, curator) =>
+  postAs(curator, `/super-vaults/${superVaultId}/allocations/${subVaultId}/abandon-exit`)
+export const redeployProceeds = (superVaultId, from_sub_vault_id, to_sub_vault_id, curator) =>
+  postAs(curator, `/super-vaults/${superVaultId}/reallocate`, { from_sub_vault_id, to_sub_vault_id })
 export const repayCuratorLoan = (superVaultId, amount, curator) =>
   postAs(curator, `/super-vaults/${superVaultId}/repay`, { amount })
 export const withdrawFromSubFund = (superVaultId, subVaultId, shares, curator) =>

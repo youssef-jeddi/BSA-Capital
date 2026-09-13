@@ -660,3 +660,7 @@ button.ghost.danger:hover:not(:disabled) { border-color: var(--bad-line); color:
                    line-height: 1.55; margin-top: 5px; max-width: 42ch; }
 .earned { font-family: var(--mono); font-size: 11px; color: var(--ok);
           font-variant-numeric: tabular-nums; }
+
+/* An exited allocation is history, not a live holding. */
+.holdings-row.is-exited { opacity: 0.55; }
+.holdings-row.is-exited b { text-decoration: line-through; }
