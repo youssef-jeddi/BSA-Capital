@@ -6,6 +6,8 @@
 
 Built at the **XRPL Lending Protocol Hackathon**, Paris, 12–13 September 2026.
 
+Link to the demo video : https://drive.google.com/file/d/1iWeQfP9lrD8H9TnMB_B9x6MPyiw3kdVD/view?usp=sharing
+
 ## Submission facts
 
 | | |
