@@ -41,6 +41,10 @@ const STEPS = [
   ['2026-09-13-super-vault-interest-rate', (db) => {
     addColumn(db, 'super_vaults', 'interest_rate', 'INTEGER')
   }],
+  ['2026-09-13-vault-target-apy', (db) => {
+    addColumn(db, 'vaults', 'target_apy', 'INTEGER')
+  }],
+
   ['2026-09-13-drop-unused-profile-status', (db) => {
     // companies.status / users.status were a seam for a credentials flow the zone
     // system replaced. Nothing ever wrote them. SQLite cannot drop a column

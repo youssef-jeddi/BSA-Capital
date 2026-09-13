@@ -4,6 +4,7 @@ import DateTimeField from './ui/DateTimeField.jsx'
 import { describeGap, inMinutes } from '../lib/schedule.js'
 import Steps from './Steps.jsx'
 import LifecycleRail from './ui/LifecycleRail.jsx'
+import { MAX_RATE, formatRate, pctToRate } from '../lib/yield.js'
 import { rememberVault } from '../lib/store.js'
 import { recordVault, resolveZoneDomain } from '../lib/api.js'
 import ZonePicker from './zones/ZonePicker.jsx'
@@ -30,7 +31,7 @@ function spanDays(a, b) {
 const INITIAL = {
   assetType: 'XRP', iouCurrency: '', iouIssuer: '', mptIssuanceId: '',
   subscriptionAt: inMinutes(6), redemptionAt: inMinutes(20),
-  vaultName: '', website: '',
+  vaultName: '', website: '', targetApy: '',
   capEnabled: false, cap: '', zones: [], private: false, domainId: '', nonTransferable: false,
   ticker: '', shareName: '', issuerName: '', assetClass: 'rwa', assetSubclass: 'private_credit',
   desc: '', icon: 'https://bsa.capital/icon.png',
@@ -49,6 +50,7 @@ export default function CreateVault({ session, address, company }) {
     return {
       ...base,
       vaultName: draft.name,
+      targetApy: draft.target_apy == null ? '' : String(draft.target_apy / 1000),
       ticker: draft.ticker || base.ticker,
       issuerName: draft.issuerName || base.issuerName,
       assetClass: draft.assetClass, assetSubclass: draft.assetSubclass,
@@ -115,6 +117,7 @@ export default function CreateVault({ session, address, company }) {
         asset_code: f.assetType === 'XRP' ? 'XRP' : (f.iouCurrency || 'MPT'),
         subscription_date: dates.SubscriptionDate,
         redemption_date: dates.RedemptionDate,
+        target_apy: pctToRate(f.targetApy),
         is_private: f.zones.length > 0,
         zones: f.zones,
         domain_id: form.domainId || null,
@@ -216,6 +219,17 @@ export default function CreateVault({ session, address, company }) {
           <label>Website<input value={f.website} onChange={set('website')} placeholder="e.g. example.com" /></label>
         </div>
         <p className="dim">Stored on-ledger in the vault's Data field (max 256 bytes).</p>
+
+        <label>
+          Target APY (%)
+          <input type="number" step="0.01" min="0" max={MAX_RATE / 1000} value={f.targetApy}
+                 onChange={set('targetApy')} placeholder="e.g. 9.40" />
+        </label>
+        <p className="dim">
+          What you are aiming to return to depositors. This is a promise you publish, not something
+          the ledger enforces — investors also see what the fund has actually returned, read from
+          price per share. Capped at {MAX_RATE / 1000}%, the ceiling XLS-66 puts on a loan's interest rate.
+        </p>
       </fieldset>
 
       <fieldset>
@@ -318,6 +332,7 @@ export default function CreateVault({ session, address, company }) {
               <div><span>Subscription window</span><b>{spanDays(Date.now(), subMs)}</b></div>
               <div><span>Investment term</span><b>{spanDays(subMs, redMs)}</b></div>
               <div><span>Loan maturity ceiling</span><b>{preview(redMs)}</b></div>
+              <div><span>Target APY</span><b>{f.targetApy ? formatRate(pctToRate(f.targetApy)) : 'not published'}</b></div>
               <div><span>Shares</span><b>{f.nonTransferable ? 'non-transferable' : 'transferable'}</b></div>
             </div>
           </>

@@ -23,7 +23,8 @@ export function list({ curator } = {}) {
 export function allocationsOf(superVaultId) {
   return getDb().prepare(`
     SELECT a.*, v.name AS sub_vault_name, v.redemption_date AS sub_redemption_date,
-           v.company_address AS sub_company_address, c.name AS sub_company_name
+           v.company_address AS sub_company_address, c.name AS sub_company_name,
+           v.target_apy AS sub_target_apy
       FROM super_vault_allocations a
       LEFT JOIN vaults v ON v.vault_id = a.sub_vault_id
       LEFT JOIN companies c ON c.address = v.company_address

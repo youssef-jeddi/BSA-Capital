@@ -9,6 +9,7 @@ import ZoneBadges from '../zones/ZoneBadges.jsx'
 import ZoneGate from '../zones/ZoneGate.jsx'
 import { useHolderZones } from '../../hooks/useZones.js'
 import { zoneAccess } from '../../lib/zones.js'
+import { RELIABLE_AFTER_MS, formatGain, formatRate, realisedYield } from '../../lib/yield.js'
 import {
   PHASE_RULES, assetToDisplay, countdown, fetchPosition, isXrpVault,
 } from '../../lib/ledger.js'
@@ -85,6 +86,7 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
   const red = rippleTimeToUnixTime(vault.RedemptionDate)
   const start = entry.created_at ? Date.parse(entry.created_at) : null
   const yourValue = pps == null || !shares ? null : assetToDisplay(vault, Math.floor(shares * pps))
+  const earned = realisedYield({ pps, since: sub, nowMs })
 
   return (
     <>
@@ -102,8 +104,12 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
           <div style={{ marginTop: 8 }}><ZoneBadges zones={entry.zones} /></div>
         </div>
         <div className="figure">
-          <b>{pps == null ? '—' : pps.toFixed(6)}</b>
-          <span>price per share · {phase.phase.toLowerCase()}</span>
+          <b>{entry.target_apy == null ? (pps == null ? '—' : pps.toFixed(6)) : formatRate(entry.target_apy)}</b>
+          <span>
+            {entry.target_apy == null
+              ? <>price per share · {phase.phase.toLowerCase()}</>
+              : <>target APY · {phase.phase.toLowerCase()}</>}
+          </span>
         </div>
       </div>
 
@@ -159,6 +165,34 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
                   {assetToDisplay(vault, vault.LossUnrealized)}
                 </b>
                 <small>absorbed by cover first</small>
+              </div>
+            </div>
+
+            <div style={{ padding: 18, borderBottom: '1px solid var(--line-soft)' }}>
+              <div className="sect">Yield</div>
+              <div className="yieldpair">
+                <div>
+                  <span>Target</span>
+                  <b>{entry.target_apy == null ? 'not published' : formatRate(entry.target_apy)}</b>
+                  <small>what the manager is aiming to return. Not enforced by the ledger.</small>
+                </div>
+                <div>
+                  <span>Earned so far</span>
+                  <b className={earned?.gain > 0 ? 'up' : undefined}>
+                    {earned ? formatGain(earned.gain) : '—'}
+                  </b>
+                  <small>
+                    {!earned
+                      ? 'nothing yet: the fund is still raising, so no capital is at work.'
+                      : earned.gain === 0
+                        ? 'price per share is still 1.000000 — no loan has repaid into the vault yet.'
+                        : earned.reliable
+                          ? <>{formatRate(Math.round(earned.apy * 1000))} annualised</>
+                          : <>{formatRate(Math.round(earned.apy * 1000))} annualised, but from only{' '}
+                             {Math.round(earned.elapsedMs / 60000)} min — too short a sample to mean much
+                             (needs {RELIABLE_AFTER_MS / 3600000}h).</>}
+                  </small>
+                </div>
               </div>
             </div>
 

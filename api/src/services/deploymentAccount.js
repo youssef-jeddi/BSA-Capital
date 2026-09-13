@@ -150,7 +150,10 @@ export async function unwindState(loanId, subVaultIds) {
     if (loanId) {
       try {
         const node = (await client.request({ command: 'ledger_entry', index: loanId })).result.node
-        loan = {
+        // A fully repaid loan is NOT deleted: the entry survives with every
+        // balance field absent and only a stale PeriodicPayment left. Measured
+        // on Devnet, LoanPay 9F832C36…, so presence alone means nothing.
+        loan = node.TotalValueOutstanding == null ? null : {
           outstanding: node.TotalValueOutstanding,
           principal: node.PrincipalOutstanding,
           periodic: node.PeriodicPayment,

@@ -73,12 +73,16 @@ export default function UnwindPanel({ entry, nowMs, onRefresh }) {
              </b></div>
       </div>
 
-      {overdue && (
+      {overdue ? (
         <p className="warnline">
-          <b>This loan is past its payment date.</b> Once a loan passes maturity plus its grace
-          period the ledger refuses every repayment with <code>tecEXPIRED</code>, the capital stays
-          with the deployment account and depositors cannot be paid. Repay now if the grace period
-          has not elapsed.
+          <b>This loan is past its due date.</b> The grace period is the last window: once it
+          elapses the ledger refuses every repayment with <code>tecEXPIRED</code>, the capital stays
+          with the deployment account and depositors can never be paid. Repay now.
+        </p>
+      ) : dueMs != null && (
+        <p className="dim">
+          One payment, due in {countdown(dueMs - nowMs)}. Repaying early is fine and is the normal
+          path: redeem the sub-funds, then repay as soon as the cash is back.
         </p>
       )}
 

@@ -2,22 +2,37 @@
  * Whole super vault lifecycle, headless, through the same API the UI calls.
  *
  *   sub-funds -> super vault -> depositor subscribes -> curator lends to the
- *   deployment account -> deployment account allocates across the sub-funds
+ *   deployment account -> allocates across the sub-funds -> sub-funds redeem ->
+ *   the curator loan is repaid -> price per share steps up
  *
- * Proves the chain end to end before anyone clicks through it.
+ * Proves the chain end to end before anyone clicks through it. The unwind half
+ * matters most: a curator loan that passes maturity can never be repaid, and the
+ * capital is stranded with the deployment account with no way to reach depositors.
+ *
+ * Takes about 10 minutes of Devnet wall time.
  */
 import * as xrpl from 'xrpl'
 import fs from 'node:fs'
 import path from 'node:path'
 import { proveControl } from './lib/auth.mjs'
+import { loanSchedule } from '../web/src/lib/superVault.js'
 
 const API = process.env.API ?? 'http://127.0.0.1:8787'
 const ROOT = path.resolve(import.meta.dirname, '..')
 const EX = 'https://devnet.xrpl.org/transactions/'
 
-// sub redemption <= loan maturity < super redemption
-const SUB_FUND = { sub: 20, red: 25 }
-const SUPER = { sub: 3, loan: 30, red: 45 }
+/**
+ * Minutes from start. Two orderings have to hold and neither is enforced by the
+ * protocol: the super vault must close its subscription BEFORE the sub-funds
+ * close theirs (or the deployment account cannot deposit), and every sub-fund
+ * must redeem BEFORE the curator loan matures (or the loan cannot be repaid).
+ *
+ * The loan matures well after the sub-funds redeem so the first scheduled
+ * instalment is not yet due when we repay in full — otherwise the test would be
+ * measuring a missed payment rather than the unwind.
+ */
+const SUB_FUND = { sub: 5, red: 9 }
+const SUPER = { sub: 3, loan: 21, red: 25 }
 
 const client = new xrpl.Client('wss://s.devnet.rippletest.net:51233/')
 const log = (...a) => console.log(...a)
@@ -134,10 +149,17 @@ async function main() {
 
   log('\n── 5. Curator signs, deployment account counter-signs ──')
   const vaultNow = (await client.request({ command: 'ledger_entry', index: superId })).result.node
+  // Same helper the UI uses: the last payment lands on the chosen maturity.
+  const sched = loanSchedule({ maturityRippleTime: rippleAt(SUPER.loan), nowMs: Date.now() })
+  if (sched.error) throw new Error(sched.error)
+  log(`  schedule ${sched.PaymentTotal} x ${sched.PaymentInterval}s, grace ${sched.GracePeriod}s`)
   const prepared = await client.autofill({
     TransactionType: 'LoanSet', Account: W.broker.address, Counterparty: deployer.address,
     LoanBrokerID: superBrokerId, PrincipalRequested: String(vaultNow.AssetsAvailable),
-    InterestRate: 5000, PaymentInterval: 120, PaymentTotal: 2, GracePeriod: 60,
+    InterestRate: 5000,
+    PaymentInterval: sched.PaymentInterval,
+    PaymentTotal: sched.PaymentTotal,
+    GracePeriod: sched.GracePeriod,
   })
   const halfSigned = xrpl.decode(W.broker.sign(prepared).tx_blob)
   const out = await api(`/api/super-vaults/${superId}/counter-sign`, { tx_json: halfSigned }, W.broker)
@@ -153,11 +175,65 @@ async function main() {
     log(`  ${d.result_code === 'tesSUCCESS' ? 'OK  ' : 'FAIL'} deposit -> ${s.name.padEnd(22)} ${d.result_code}`)
   }
 
-  log('\n── 7. Final state ──')
-  const final = await api(`/api/super-vaults/${superId}`)
-  log(`  status ${final.status}  loan ${final.loan_id?.slice(0, 16)}…`)
-  for (const a of final.allocations) {
+  log('\n── 7. Deployed state ──')
+  const deployed = await api(`/api/super-vaults/${superId}`)
+  log(`  status ${deployed.status}  loan ${deployed.loan_id?.slice(0, 16)}…`)
+  for (const a of deployed.allocations) {
     log(`   - ${(a.sub_vault_name ?? '').padEnd(18)} ${a.target_bps / 100}%  funded: ${a.deposited_tx ? 'yes' : 'no'}`)
+  }
+
+  // Price per share before anything is repaid, to compare against at the end.
+  const ppsOf = async () => {
+    const v = (await client.request({ command: 'ledger_entry', index: superId })).result.node
+    const i = (await client.request({ command: 'ledger_entry', mpt_issuance: v.ShareMPTID })).result.node
+    const out = Number(i.OutstandingAmount ?? 0)
+    return { pps: out ? Number(v.AssetsTotal ?? 0) / out : null, assets: v.AssetsTotal, outstanding: out }
+  }
+  const before = await ppsOf()
+  log(`  super vault assets ${before.assets} drops, price/share ${before.pps?.toFixed(8)}`)
+
+  log('\n── 8. Waiting for the sub-funds to reach Redemption ──')
+  const redeemAt = T0 + SUB_FUND.red * 60_000
+  while ((await ledgerNow()) < redeemAt + 4000) {
+    log(`  ${Math.max(0, Math.round((redeemAt - (await ledgerNow())) / 1000))}s…`); await wait(15000)
+  }
+
+  log('\n── 9. Deployment account redeems its sub-fund positions ──')
+  let state = await api(`/api/super-vaults/${superId}/unwind`)
+  if (!state.configured) throw new Error('unwind state says no deployment account is configured')
+  for (const p of state.positions.filter((x) => Number(x.shares) > 0)) {
+    const name = subs.find((s) => s.id === p.vault_id)?.name ?? p.vault_id.slice(0, 10)
+    const w = await api(`/api/super-vaults/${superId}/allocations/${p.vault_id}/withdraw`,
+      { shares: p.shares }, W.broker)
+    log(`  ${w.result_code === 'tesSUCCESS' ? 'OK  ' : 'FAIL'} VaultWithdraw <- ${name.padEnd(18)} ${w.result_code}`)
+    if (w.result_code !== 'tesSUCCESS') throw new Error(`redeem ${name}: ${w.result_code}`)
+  }
+
+  state = await api(`/api/super-vaults/${superId}/unwind`)
+  const held = state.positions.filter((p) => Number(p.shares) > 0)
+  log(`  deployment account holds ${state.balance} XRP, ${held.length} position(s) left`)
+
+  log('\n── 10. Repay the curator loan ──')
+  if (!state.loan) throw new Error('the loan is already gone before repayment')
+  const dueMs = xrpl.rippleTimeToUnixTime(state.loan.next_due)
+  log(`  outstanding ${state.loan.outstanding}, ${state.loan.remaining} payment(s) left,`
+    + ` next due in ${Math.round((dueMs - (await ledgerNow())) / 1000)}s`)
+
+  // Exactly what UnwindPanel sends: the whole outstanding, rounded up to a drop.
+  const amount = String(Math.ceil(Number(state.loan.outstanding)))
+  const rep = await api(`/api/super-vaults/${superId}/repay`, { amount }, W.broker)
+  log(`  ${rep.result_code === 'tesSUCCESS' ? 'OK  ' : 'FAIL'} LoanPay ${amount} drops${''.padEnd(9)} ${rep.result_code}`)
+  log(`       ${EX}${rep.hash}`)
+  if (rep.result_code !== 'tesSUCCESS') throw new Error(`LoanPay: ${rep.result_code}`)
+
+  log('\n── 11. What the depositor is left holding ──')
+  const after = await ppsOf()
+  const post = await api(`/api/super-vaults/${superId}/unwind`)
+  log(`  super vault assets ${before.assets} -> ${after.assets} drops`)
+  log(`  price per share    ${before.pps?.toFixed(8)} -> ${after.pps?.toFixed(8)}`)
+  log(`  loan               ${post.loan ? `still ${post.loan.outstanding} outstanding` : 'repaid and closed'}`)
+  if (after.pps <= before.pps) {
+    log('  WARNING price per share did not rise: the repayment did not reach the vault')
   }
   log(`\nSuper vault ${superId}`)
   await client.disconnect()

@@ -68,7 +68,7 @@ export default function CreateSuperVault({ session, address, company, candidates
     ...((dates.redemptionMs - dates.subscriptionMs) / 1000 < 180
       ? ['Investment period must be at least 3 minutes.'] : []),
     ...(Number(f.rate) < 0 || Number(f.rate) > 10
-      ? ['Rate must be between 0 and 10% — the ledger caps InterestRate at 100000 (10% annual).'] : []),
+      ? ['Rate must be between 0 and 100% — the ledger caps InterestRate at 100000, and a rate unit is 1/10th bps.'] : []),
     ...weightErrors(allocations),
   ], [f, allocations, address, dates])
 

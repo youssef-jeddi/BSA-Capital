@@ -105,18 +105,27 @@ export function asFundEntry(superVault) {
 }
 
 /**
- * Derive a loan schedule from the maturity the curator chose.
+ * Derive the curator loan's schedule from the maturity the curator chose.
  *
- * Hardcoding a short schedule made loans mature minutes after origination,
- * long before the sub-funds redeemed, and a loan past maturity can never be
- * repaid: LoanPay returns tecEXPIRED and the capital is stranded. The last
- * payment must therefore land on the chosen maturity, which the API already
- * guarantees is after every sub-fund redeems.
+ * The curator loan is a BULLET loan: one payment, due at maturity. That is not
+ * a simplification, it is the only shape the structure can service.
+ *
+ * The deployment account borrows the raise and immediately puts every drop into
+ * the sub-funds. From that moment until the sub-funds reach their own Redemption
+ * phase it holds no cash at all. Any instalment falling due in that window is
+ * unpayable — not late, impossible — and once it passes its grace period the
+ * loan is delinquent and heading for tecEXPIRED, at which point the capital is
+ * stranded and depositors can never be paid.
+ *
+ * With two instalments the first fell due halfway to maturity, which is always
+ * inside that window. With one, nothing is owed until the capital has come back.
  */
 export const MIN_PAYMENT_INTERVAL = 60
 export const MIN_GRACE = 60
+/** A bullet loan still needs room to originate, allocate, redeem and repay. */
+export const MIN_TERM_SECONDS = 300
 
-export function loanSchedule({ maturityRippleTime, nowMs, payments = 2 }) {
+export function loanSchedule({ maturityRippleTime, nowMs, payments = 1 }) {
   if (maturityRippleTime == null) {
     return { error: 'This super vault has no recorded loan maturity. Relaunch it to set one.' }
   }
@@ -124,10 +133,12 @@ export function loanSchedule({ maturityRippleTime, nowMs, payments = 2 }) {
   const maturityMs = (maturityRippleTime + 946684800) * 1000
   const seconds = Math.floor((maturityMs - nowMs) / 1000)
 
-  if (seconds < MIN_PAYMENT_INTERVAL * payments) {
+  const floor = Math.max(MIN_TERM_SECONDS, MIN_PAYMENT_INTERVAL * payments)
+  if (seconds < floor) {
     return {
-      error: `The curator loan matures in ${seconds}s, too soon for ${payments} payments of at least `
-        + `${MIN_PAYMENT_INTERVAL}s. Deploy earlier, or relaunch with a later maturity.`,
+      error: `The curator loan matures in ${seconds}s. It needs at least ${floor}s to originate, `
+        + 'allocate into the sub-funds, wait for them to redeem and repay. Deploy earlier, or '
+        + 'relaunch with a later maturity.',
     }
   }
   const interval = Math.max(MIN_PAYMENT_INTERVAL, Math.floor(seconds / payments))

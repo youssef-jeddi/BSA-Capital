@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS vaults (
   zones             TEXT,               -- JSON array of zone codes, null = open to all
   domain_id         TEXT,
   tx_hash           TEXT,
+  -- The rate the manager advertises, in 1/10th bps like the ledger's own
+  -- InterestRate (100000 = 10% annual, the protocol ceiling). A promise, not a
+  -- measurement: what the fund actually returned is read from price per share.
+  target_apy        INTEGER,
   created_at        TEXT NOT NULL
 );
 

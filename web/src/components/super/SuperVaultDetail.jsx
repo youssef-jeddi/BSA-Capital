@@ -9,6 +9,7 @@ const PhaseInline = ({ phase, nowMs }) =>
 import AllocationBreakdown from './AllocationBreakdown.jsx'
 import UnwindPanel from './UnwindPanel.jsx'
 import { countdown } from '../../lib/ledger.js'
+import { blendedTarget, formatRate } from '../../lib/yield.js'
 import { aggregateNav, bpsToPct } from '../../lib/superVault.js'
 import { useSuperVaultDeploy } from '../../hooks/useSuperVaultDeploy.js'
 import { dropsToXrp } from 'xrpl'
@@ -30,6 +31,8 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
   const testAccountMatches = deployer?.configured && deployer.address === entry.deployment_address
 
   const raised = own?.vault ? Number(own.vault.AssetsTotal ?? 0) : null
+  const blend = blendedTarget(positions, (id) =>
+    positions.find((p) => p.sub_vault_id === id)?.sub_target_apy ?? null)
 
   return (
     <>
@@ -44,8 +47,8 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
           </div>
         </div>
         <div className="figure">
-          <b>{own?.pps == null ? '—' : own.pps.toFixed(6)}</b>
-          <span>price per share · <PhaseInline phase={own?.phase} nowMs={nowMs} /></span>
+          <b>{formatRate(entry.interest_rate)}</b>
+          <span>you receive · <PhaseInline phase={own?.phase} nowMs={nowMs} /></span>
         </div>
       </div>
 
@@ -73,6 +76,35 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
           those deposits. Relaunch this super vault against funds that are still open.
         </p>
       )}
+
+      {/* The blend is what the CURATOR earns. A depositor is paid through the
+          curator loan, so both belong on screen: the gap is the curator's spread
+          and their risk, and showing only the blend overstates the return. */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="sect">Yield</div>
+        <div className="yieldpair">
+          <div>
+            <span>Sub-funds blend to</span>
+            <b>{blend ? formatRate(blend.rate) : 'not published'}</b>
+            <small>
+              {!blend
+                ? 'no sub-fund has published a target APY, so there is nothing to average.'
+                : blend.complete
+                  ? 'weighted by allocation across every sub-fund.'
+                  : `weighted across the ${Math.round(blend.coverage * 100)}% of the allocation whose sub-funds published a target.`}
+            </small>
+          </div>
+          <div>
+            <span>Depositors receive</span>
+            <b>{formatRate(entry.interest_rate)}</b>
+            <small>
+              the rate on the curator loan — the only channel that carries value back into this
+              vault. The gap is {entry.curator_name ?? 'the curator'}&apos;s spread, and their loss
+              if the sub-funds fall short.
+            </small>
+          </div>
+        </div>
+      </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="sect">Allocation</div>

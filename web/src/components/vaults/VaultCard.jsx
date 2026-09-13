@@ -3,6 +3,7 @@ import { assetToDisplay } from '../../lib/ledger.js'
 import PhaseBadge from './PhaseBadge.jsx'
 import ZoneBadges from '../zones/ZoneBadges.jsx'
 import LifecycleRail from '../ui/LifecycleRail.jsx'
+import { formatGain, formatRate, realisedYield } from '../../lib/yield.js'
 
 const DATE = { day: 'numeric', month: 'short' }
 const shortDate = (ms) => new Date(ms).toLocaleDateString('en-GB', DATE)
@@ -18,6 +19,8 @@ export default function VaultCard({ entry, nowMs, onOpen }) {
   const red = vault ? rippleTimeToUnixTime(vault.RedemptionDate) : null
   // The ledger records no creation date, so the rail's left edge comes from the index.
   const start = entry.created_at ? Date.parse(entry.created_at) : null
+  // Capital only starts working when the subscription window shuts.
+  const earned = realisedYield({ pps, since: sub, nowMs })
 
   return (
     <button className={entry.kind === 'super' ? 'vaultcard is-super' : 'vaultcard'}
@@ -40,7 +43,10 @@ export default function VaultCard({ entry, nowMs, onOpen }) {
             <div><span>Raised</span><b>{num(assetToDisplay(vault, vault.AssetsTotal))}</b></div>
             <div><span>Lent out</span>
                  <b>{num(assetToDisplay(vault, Number(vault.AssetsTotal ?? 0) - Number(vault.AssetsAvailable ?? 0)))}</b></div>
-            <div><span>Price / share</span><b>{pps == null ? '—' : pps.toFixed(6)}</b></div>
+            <div>
+              <span>{entry.target_apy == null ? 'Price / share' : 'Target APY'}</span>
+              <b>{entry.target_apy == null ? (pps == null ? '—' : pps.toFixed(6)) : formatRate(entry.target_apy)}</b>
+            </div>
           </div>
 
           {/* The term at a glance: how much of it has already run. */}
@@ -54,7 +60,9 @@ export default function VaultCard({ entry, nowMs, onOpen }) {
       )}
 
       <div className="vaultcard-foot">
-        <ZoneBadges zones={entry.zones} compact />
+        {earned && earned.gain > 0
+          ? <span className="earned">{formatGain(earned.gain)} earned so far</span>
+          : <ZoneBadges zones={entry.zones} compact />}
         <span className={open ? 'cta open' : 'cta'}>
           {open ? 'Open for deposits' : `${phase?.phase ?? 'Unavailable'} — view details`}
         </span>

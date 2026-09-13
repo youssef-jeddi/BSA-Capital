@@ -4,7 +4,7 @@ import {
   markSuperVaultDeployed, markAllocationFunded,
   counterSignWithDeployer, depositAsDeployer,
 } from '../lib/api.js'
-import { submitSigned } from '../lib/ledger.js'
+import { handoffExpiry, submitSigned, withHandoffWindow } from '../lib/ledger.js'
 import { loanSchedule, splitRaise } from '../lib/superVault.js'
 import { clearPendingLoan, getPendingLoan, savePendingLoan } from '../lib/pendingLoans.js'
 
@@ -34,16 +34,23 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
       const raised = Number(entry.own?.vault?.AssetsAvailable ?? 0)
       if (!raised) throw new Error('The super vault has not raised anything yet.')
 
-      const res = await signTransaction(session, {
+      // Same schedule as deployAll: a hardcoded 120s x 2 matured the loan four
+      // minutes after origination, long before any sub-fund could redeem, and a
+      // loan past maturity can never be repaid — LoanPay returns tecEXPIRED and
+      // the capital is stranded with the deployment account.
+      const schedule = loanSchedule({ maturityRippleTime: entry.loan_maturity, nowMs: Date.now() })
+      if (schedule.error) throw new Error(schedule.error)
+
+      const res = await signTransaction(session, await withHandoffWindow({
         TransactionType: 'LoanSet', Account: address,
         Counterparty: entry.deployment_address,
         LoanBrokerID: entry.loan_broker_id,
         PrincipalRequested: String(raised),
-        InterestRate: 5000,      // 5%
-        PaymentInterval: 120,
-        PaymentTotal: 2,
-        GracePeriod: 60,         // ledger floor
-      }, { submit: false })
+        InterestRate: entry.interest_rate ?? 5000,
+        PaymentInterval: schedule.PaymentInterval,
+        PaymentTotal: schedule.PaymentTotal,
+        GracePeriod: schedule.GracePeriod,
+      }), { submit: false })
 
       savePendingLoan(entry.vault_id, res.tx_json)
       refreshPending()
@@ -59,6 +66,15 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
     try {
       const held = getPendingLoan(entry.vault_id)
       if (!held) throw new Error('No half-signed loan is waiting for this super vault.')
+
+      // Say so before spending a wallet approval on a transaction the ledger
+      // will refuse: the curator's signature covers LastLedgerSequence, so an
+      // expired blob can only be discarded and re-signed.
+      const { expired } = await handoffExpiry(held.txJson)
+      if (expired) {
+        throw new Error('The curator signature has expired — its validity window closed before the '
+          + 'deployment account counter-signed. Discard it and re-sign.')
+      }
 
       // signature_target makes the wallet use the CPT prefix and NOT submit.
       const signedRes = await signAsCounterparty(session, held.txJson)
@@ -151,7 +167,7 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
         const schedule = loanSchedule({ maturityRippleTime: entry.loan_maturity, nowMs: Date.now() })
         if (schedule.error) throw new Error(schedule.error)
 
-        const res = await signTransaction(session, {
+        const res = await signTransaction(session, await withHandoffWindow({
           TransactionType: 'LoanSet', Account: address,
           Counterparty: entry.deployment_address,
           LoanBrokerID: entry.loan_broker_id,
@@ -162,7 +178,7 @@ export function useSuperVaultDeploy({ session, address, entry, onDone }) {
           PaymentInterval: schedule.PaymentInterval,
           PaymentTotal: schedule.PaymentTotal,
           GracePeriod: schedule.GracePeriod,
-        }, { submit: false })
+        }), { submit: false })
 
         savePendingLoan(entry.vault_id, res.tx_json)
         held = getPendingLoan(entry.vault_id)

@@ -127,6 +127,36 @@ export const rateToPct = (r) => (r == null ? null : r / 1000)
  * Submit an already fully-signed transaction. Needed for the two-party LoanSet:
  * with signature_target set the wallet signs but does not submit.
  */
+/**
+ * A validity window wide enough for a human to switch wallet accounts.
+ *
+ * xrpl.js autofill sets LastLedgerSequence to current + 20, about 80 seconds.
+ * That is right for sign-and-send, and wrong for every two-party transaction
+ * here: the first party signs, the blob is parked, and the second party signs
+ * and submits minutes later. The window closes in between and the ledger
+ * answers tefPAST_SEQ. The field is covered by the signature, so it has to be
+ * set before anyone signs — it cannot be refreshed afterwards.
+ *
+ * Wide, not absent. An unbounded transaction can be submitted forever by
+ * anyone holding the blob; ten minutes is enough for the handoff and no more.
+ */
+export const HANDOFF_LEDGERS = 150      // ~4s per ledger, so roughly 10 minutes
+
+export async function withHandoffWindow(tx) {
+  const c = await ledger()
+  const index = await c.getLedgerIndex()
+  return { ...tx, LastLedgerSequence: index + HANDOFF_LEDGERS }
+}
+
+/** Whether a parked signature is still submittable, so we can say so first. */
+export async function handoffExpiry(tx_json) {
+  const last = Number(tx_json?.LastLedgerSequence)
+  if (!last) return { expired: false, ledgersLeft: null }
+  const c = await ledger()
+  const index = await c.getLedgerIndex()
+  return { expired: index > last, ledgersLeft: last - index, index, last }
+}
+
 export async function submitSigned(tx_json) {
   const c = await ledger()
   const r = await c.submitAndWait(encode(tx_json))

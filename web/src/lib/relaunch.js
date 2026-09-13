@@ -45,6 +45,7 @@ export function draftFromVault(entry) {
     sourceVaultId: entry.vault_id,
     name: nextSeriesName(entry.name),
     activity: entry.company_activity ?? '',
+    target_apy: entry.target_apy ?? null,
     strategy: entry.strategy ?? '',
     assetCode: entry.asset_code ?? 'XRP',
     cap: cap && Number(cap) > 0 ? String(dropsToXrp(String(cap))) : '',

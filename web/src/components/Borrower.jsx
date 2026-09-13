@@ -9,8 +9,8 @@ import ZoneBadges from './zones/ZoneBadges.jsx'
 import { useHolderZones } from '../hooks/useZones.js'
 import { zoneAccess } from '../lib/zones.js'
 import {
-  assetToDisplay, countdown, fetchBroker, fetchLoans, isXrpVault,
-  ledgerNowMs, loanState, phaseOf, rateToPct, submitSigned,
+  assetToDisplay, countdown, fetchBroker, fetchLoans, handoffExpiry, isXrpVault,
+  ledgerNowMs, loanState, phaseOf, rateToPct, submitSigned, withHandoffWindow,
 } from '../lib/ledger.js'
 import { xrpToDrops, rippleTimeToUnixTime } from 'xrpl'
 import { clearPendingLoan, pendingFor, savePendingLoan } from '../lib/pendingLoans.js'
@@ -91,7 +91,9 @@ export default function Borrower({ session, address }) {
   async function signRequest() {
     setBusy(true); setSteps([{ label: 'LoanSet — borrower signature', state: 'pending' }])
     try {
-      const res = await signTransaction(session, buildLoanSet(), { submit: false })
+      // Signed now, submitted by the lender minutes from now: widen the window
+      // before signing or the ledger rejects it with tefPAST_SEQ.
+      const res = await signTransaction(session, await withHandoffWindow(buildLoanSet()), { submit: false })
       savePendingLoan(`loan:${brokerId}:${Date.now()}`, res.tx_json)
       refreshAwaiting()
       setSteps([{ label: 'Signed, waiting for the lender', state: 'ok',
@@ -112,6 +114,11 @@ export default function Borrower({ session, address }) {
       const tx = held.txJson
       if (tx.Account === address) {
         throw new Error('This session is the originator. Switch to the counterparty account in the header.')
+      }
+      const { expired } = await handoffExpiry(tx)
+      if (expired) {
+        throw new Error('This signed request has expired — its validity window closed before it was '
+          + 'submitted. Discard it and ask the borrower to sign a fresh one.')
       }
       const res = await signAsCounterparty(session, tx)
       setSteps([{ label: 'Counterparty signature attached', state: 'ok' },
@@ -312,7 +319,13 @@ function LoanRow({ loan, nowMs, busy, onPay }) {
       <div className="row" style={{ marginTop: 10 }}>
         <input type="number" min="0" value={amt} onChange={(e) => setAmt(e.target.value)} placeholder="Amount in XRP" />
         <button disabled={busy || !amt} onClick={() => onPay(loan, amt)}>Pay</button>
-        <button className="ghost" disabled={busy || !amt} onClick={() => onPay(loan, amt, 0x00020000)}>Pay in full</button>
+        {/* No flag: LoanPay accepts the whole TotalValueOutstanding as-is.
+            This used to send 0x00020000, which is lsfLoanImpaired — a ledger
+            object flag, not a transaction flag. */}
+        <button className="ghost" disabled={busy}
+                onClick={() => onPay(loan, String(Math.ceil(Number(loan.TotalValueOutstanding))))}>
+          Pay in full
+        </button>
       </div>
     </div>
   )
