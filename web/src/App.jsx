@@ -42,6 +42,9 @@ const NAV_BY_ROLE = {
     { items: [
       { id: 'invest', label: 'Invest', title: 'Invest' },
       { id: 'portfolio', label: 'Portfolio', title: 'Portfolio' },
+      // An individual can borrow too: a loan is a two-party agreement between a
+      // broker and any account, with no requirement that the borrower issues funds.
+      { id: 'borrow', label: 'Borrow', title: 'Borrow' },
     ] },
     { group: 'Account', items: [
       { id: 'profile', label: 'Your profile', title: 'Your profile' },

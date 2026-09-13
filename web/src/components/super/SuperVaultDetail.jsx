@@ -113,16 +113,20 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
 
         {isCurator && testAccountMatches && entry.status !== 'deployed' && (
           <>
-            <button className="full"
-                    disabled={busy || own?.phase?.phase !== 'Investment' || unfundable.length > 0}
-                    onClick={deployAll}>
+            {/* Warned, never blocked: a refusal here is the protocol doing its job
+                and is worth seeing rather than hiding behind a disabled button. */}
+            {own?.phase?.phase !== 'Investment' && (
+              <p className="warnline">
+                This super vault is in {own?.phase?.phase ?? 'an unreadable phase'}. A loan can only
+                be originated during Investment, so the ledger will refuse this now.
+              </p>
+            )}
+            <button className="full" disabled={busy} onClick={deployAll}>
               {busy ? 'Deploying…' : 'Deploy capital into the funds'}
             </button>
             <p className="dim">
               One wallet approval: you are lending your vault's capital, so you sign that. The
               deployment account counter-signs and funds each allocation automatically.
-              {own?.phase?.phase !== 'Investment' &&
-                ' Available once this super vault enters its Investment phase.'}
             </p>
           </>
         )}
@@ -140,9 +144,17 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
               <button className="ghost sm" disabled={busy} onClick={discard}>Discard and re-sign</button>
             </div>
           ) : (
-            <button disabled={busy || own?.phase?.phase !== 'Investment'} onClick={borrow}>
-              Originate the curator loan
-            </button>
+            <>
+              {own?.phase?.phase !== 'Investment' && (
+                <p className="warnline">
+                  This super vault is in {own?.phase?.phase ?? 'an unreadable phase'}. Loan
+                  origination is only permitted during Investment — the ledger will refuse this now.
+                </p>
+              )}
+              <button disabled={busy} onClick={borrow}>
+                Originate the curator loan
+              </button>
+            </>
           )
         )}
 

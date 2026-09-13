@@ -30,7 +30,6 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
   const [position, setPosition] = useState(null)
   const [amount, setAmount] = useState('')
   const [mode, setMode] = useState('asset')
-  const [force, setForce] = useState(false)
 
   // Every hook runs before the unreadable-vault branch below: React requires the
   // same hooks in the same order on every render.
@@ -62,7 +61,25 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
   const nextName = draftFromVault(entry).name
   const unit = isXrpVault(vault) ? 'XRP' : (vault.Asset.currency ?? 'units')
   const shares = Number(position?.MPTAmount ?? 0)
-  const blocked = mode === 'shares' ? !rules.withdraw : !rules.deposit
+
+  /**
+   * What the ledger will say if you press the button now.
+   *
+   * Nothing below is disabled for it. The whole point of this app is to show the
+   * protocol enforcing its own rules, so an action the ledger will refuse is sent
+   * anyway and the tec code comes back in the step list. Disabling the button
+   * would hide exactly the behaviour we are here to demonstrate.
+   */
+  // Only codes we have actually observed on Devnet are named. Where the refusal
+  // is certain but the code is not measured, the rule is stated without one.
+  const depositRefusal = !rules.deposit
+    ? { code: null, why: 'this fund is past its Subscription window, so the vault will not accept a deposit' }
+    : access.gated && !access.allowed
+      ? { code: 'tecNO_AUTH', why: 'your wallet holds no accepted credential for this vault\'s permissioned domain' }
+      : null
+  const withdrawRefusal = !rules.withdraw
+    ? { code: 'tecTOO_SOON', why: 'capital is locked until the redemption date' }
+    : null
 
   const sub = rippleTimeToUnixTime(vault.SubscriptionDate)
   const red = rippleTimeToUnixTime(vault.RedemptionDate)
@@ -197,51 +214,59 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
         <div className="card">
           <div className="sect">{rules.deposit ? 'Subscribe' : 'Your position'}</div>
 
-          {access.gated && !access.allowed ? (
+          {access.gated && !access.allowed && (
             <ZoneGate vaultZones={entry.zones} access={access} session={session} address={address}
                       issuer={issuer} onVerified={refreshZones} />
-          ) : (
-            <>
-              <div className="chips">
-                <button type="button" className={mode === 'asset' ? 'chip on' : 'chip'}
-                        onClick={() => setMode('asset')}>In {unit}</button>
-                <button type="button" className={mode === 'shares' ? 'chip on' : 'chip'}
-                        onClick={() => setMode('shares')}>In shares</button>
-              </div>
+          )}
 
-              <label className="field-label">
-                {mode === 'shares' ? 'Number of shares' : `Amount in ${unit}`}
-              </label>
-              <input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)}
-                     style={{ marginTop: 0, fontFamily: 'var(--mono)', fontSize: 16 }}
-                     placeholder={mode === 'shares' ? '0' : '0'} />
+          <div className="chips">
+            <button type="button" className={mode === 'asset' ? 'chip on' : 'chip'}
+                    onClick={() => setMode('asset')}>In {unit}</button>
+            <button type="button" className={mode === 'shares' ? 'chip on' : 'chip'}
+                    onClick={() => setMode('shares')}>In shares</button>
+          </div>
 
-              <div className="summary" style={{ marginTop: 12 }}>
-                <div><span>Your shares</span><b>{shares.toLocaleString('en-US')}</b></div>
-                <div><span>Your value</span><b>{yourValue == null ? '—' : `${yourValue} ${unit}`}</b></div>
-                <div><span>Capital locked until</span><b>{fmt(red, LONG)}</b></div>
-              </div>
+          <label className="field-label">
+            {mode === 'shares' ? 'Number of shares' : `Amount in ${unit}`}
+          </label>
+          <input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)}
+                 style={{ marginTop: 0, fontFamily: 'var(--mono)', fontSize: 16 }}
+                 placeholder="0" />
 
-              <div className="row">
-                <button disabled={busy || !amount || mode === 'shares' || (!rules.deposit && !force) || !access.allowed}
-                        onClick={() => deposit(amount)}>Deposit</button>
-                <button className="ghost" disabled={busy || !amount || (!rules.withdraw && !force)}
-                        onClick={() => withdraw(amount, mode)}>Withdraw</button>
-              </div>
+          <div className="summary" style={{ marginTop: 12 }}>
+            <div><span>Your shares</span><b>{shares.toLocaleString('en-US')}</b></div>
+            <div><span>Your value</span><b>{yourValue == null ? '—' : `${yourValue} ${unit}`}</b></div>
+            <div><span>Capital locked until</span><b>{fmt(red, LONG)}</b></div>
+          </div>
 
-              {!rules.deposit && (
-                <p className="dim" style={{ marginTop: 10 }}>
-                  Deposits closed: this fund left its Subscription window.
-                </p>
+          <div className="row">
+            <button disabled={busy || !amount || mode === 'shares'}
+                    onClick={() => deposit(amount)}>Deposit</button>
+            <button className="ghost" disabled={busy || !amount}
+                    onClick={() => withdraw(amount, mode)}>Withdraw</button>
+          </div>
+
+          {(depositRefusal || withdrawRefusal) && (
+            <div className="warnline" style={{ marginBottom: 0 }}>
+              {depositRefusal && (
+                <div>
+                  A deposit will be refused{depositRefusal.code && <> with <code>{depositRefusal.code}</code></>}
+                  {' '}— {depositRefusal.why}.
+                </div>
               )}
-              {blocked && (
-                <label className="check" style={{ marginTop: 10 }}>
-                  <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
-                  Demo the guardrail — submit anyway and show the ledger's rejection
-                </label>
+              {withdrawRefusal && (
+                <div>
+                  A withdrawal will be refused{withdrawRefusal.code && <> with <code>{withdrawRefusal.code}</code></>}
+                  {' '}— {withdrawRefusal.why}.
+                </div>
               )}
+              <div style={{ marginTop: 6 }}>
+                Nothing is disabled. Submit it and the ledger's own answer appears below.
+              </div>
+            </div>
+          )}
 
-              {access.gated && access.allowed && (
+          {access.gated && access.allowed && (
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line-soft)',
                               display: 'flex', gap: 9, alignItems: 'flex-start' }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--ok)',
@@ -251,12 +276,10 @@ export default function VaultDetail({ entry, nowMs, session, address, onBack, on
                     <b style={{ color: 'var(--fg)', fontWeight: 600 }}>
                       {entry.zones.filter((z) => heldZones.some((h) => h.zone === z && h.accepted)).join(', ')}
                     </b>{' '}
-                    credential, so the vault's permissioned domain will admit this deposit. Without it
-                    the ledger refuses with <code>tecNO_AUTH</code>.
-                  </div>
-                </div>
-              )}
-            </>
+                credential, so the vault's permissioned domain will admit this deposit. Without it
+                the ledger refuses with <code>tecNO_AUTH</code>.
+              </div>
+            </div>
           )}
 
           <Steps steps={steps} />

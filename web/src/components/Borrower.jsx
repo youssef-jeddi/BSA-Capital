@@ -35,11 +35,17 @@ export default function Borrower({ session, address }) {
   const nowMs = useClock()
   const { vaults, loading: lendersLoading } = useVaults()
 
-  // Any indexed fund with a registered loan broker can originate a loan.
+  /**
+   * Every indexed fund, ranked by whether it can actually lend right now.
+   *
+   * Funds with no registered loan broker used to be dropped silently, so the list
+   * looked short with no way to tell whether it was filtered or simply empty.
+   * They are shown last and disabled, with the reason on the row.
+   */
   const lenders = useMemo(
-    () => vaults.filter((v) => v.loan_broker_id).sort((a, b) => {
-      const rank = (x) => (x.phase?.phase === 'Investment' ? 0 : 1)
-      return rank(a) - rank(b)
+    () => [...vaults].sort((a, b) => {
+      const rank = (x) => (!x.loan_broker_id ? 2 : x.phase?.phase === 'Investment' ? 0 : 1)
+      return rank(a) - rank(b) || (a.name ?? '').localeCompare(b.name ?? '')
     }),
     [vaults],
   )
@@ -229,11 +235,20 @@ export default function Borrower({ session, address }) {
           asset/liability matching and rejects a loan that would mature too late.
         </p>
 
-        {termErrors.length > 0 && <ul className="errors">{termErrors.map((e) => <li key={e}>{e}</li>)}</ul>}
+        {termErrors.length > 0 && <ul className="warnings">{termErrors.map((e) => <li key={e}>{e}</li>)}</ul>}
 
-        <button
-                disabled={busy || !ctx || selfDealing || termErrors.length > 0 || !access.allowed}
-                onClick={signRequest}>
+        {access.gated && !access.allowed && (
+          <p className="warnline">
+            This fund is restricted to <ZoneBadges zones={selectedLender.zones} /> and your wallet
+            holds no accepted credential for it, so the ledger will refuse the loan
+            with <code>tecNO_AUTH</code>.
+          </p>
+        )}
+
+        {/* Only a missing broker disables this: without one there is no
+            Counterparty to address, so there is no transaction to reject.
+            Everything else is the ledger's call and is left to the ledger. */}
+        <button disabled={busy || !ctx} onClick={signRequest}>
           Sign request (no submit)
         </button>
       </div>
