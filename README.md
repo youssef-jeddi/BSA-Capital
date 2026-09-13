@@ -1,7 +1,8 @@
 # BSA Capital
 
 > A compliant marketplace for close-ended lending funds on the XRP Ledger — issue a fund, invest in
-> it, borrow from it, and sell your position before it matures.
+> it, borrow from it, and sell your position before it matures. Curators use that same market to
+> rebalance a fund-of-funds whose capital is locked.
 
 Built at the **XRPL Lending Protocol Hackathon**, Paris, 12–13 September 2026.
 
@@ -44,6 +45,20 @@ XLS-66, which allocates across sub-funds and repays with interest. The maturity 
 enforces inside one vault — a loan may not outlive its vault — is enforced by us one level up:
 `sub-fund redemption ≤ curator loan maturity < super vault redemption`.
 
+**Rebalancing through our own order book.** A curator commits to an allocation at launch and their
+sub-fund positions are then locked in those funds' Investment phase — `VaultWithdraw` returns
+`tecTOO_SOON`. So a rebalance is not a withdrawal: the deployment account sells the whole position
+on the secondary market above, and the proceeds are deposited into a fund that is still raising.
+The marketplace needed no special case for it — `createListing` takes the seller from the on-ledger
+signer of the share transfer, so the deployment account becomes the seller simply by signing, and
+the buyer pays it directly. The compliance rails and the liquidity rails turn out to be the same rails.
+
+**Yield is shown as two numbers, never one.** A manager publishes a target APY at launch; the ledger
+answers with what the fund actually returned, derived from price per share alone. Both appear side by
+side, because a published target on its own is a claim. For a super vault the sub-funds' blended
+target is shown against the curator loan rate the depositors actually receive, so the curator's
+spread is visible rather than implied.
+
 ## Transaction types used
 
 **XLS-65** `VaultCreate` · `VaultSet` · `VaultDeposit` · `VaultWithdraw`
@@ -64,6 +79,9 @@ enforces inside one vault — a loan may not outlive its vault — is enforced b
 | Super vault lends to its deployment account | [`9D2981C0…`](https://devnet.xrpl.org/transactions/9D2981C0C56CA7AF9BBE7F787F36451507703931606266FDFBCA9109C0AC4AF8) |
 | `GracePeriod: 60` accepted where 59 is refused | [`93C30D3F…`](https://devnet.xrpl.org/transactions/93C30D3F178569AB2D157F299174A10E4BEA5DE5A5FB75CBCBDA9EEBEE6EFDC9) |
 | Share transfer during Subscription | [`148ABCCF…`](https://devnet.xrpl.org/transactions/148ABCCF99EC1AC9202B7B4BB0BA14730BD750C3D9C184ED13992500034B02D3) |
+| Curator loan repaid in full, price per share 1 → 1.00000128 | [`9F832C36…`](https://devnet.xrpl.org/transactions/9F832C363D65775D5292965A4E6499F4781CBF410B936ABC1BFBD46DE1E96B29) |
+| Locked super vault position sold into custody | [`BDD86F1B…`](https://devnet.xrpl.org/transactions/BDD86F1B49F57A202B93A885D9FAA65514E4C9BA9F747A5C01DB8D9C9DB68D4E) |
+| Proceeds redeployed into a different fund | [`9A3D6006…`](https://devnet.xrpl.org/transactions/9A3D6006A040AC6283E13FB67B2F83FF518ADE48F3FAC1A31A1C0DB8C30C0111) |
 
 ## Setup
 
@@ -76,7 +94,7 @@ npm install && npm --prefix api install && npm --prefix web install
 npm run api                 # :8787 — creates api/data/bsa.db and migrates it
 npm run setup-zones         # platform account + a permissioned domain per zone subset
 npm run setup-custody       # custody account, credentialed for all three zones
-npm run supervault-account  # the super vault's deployment account
+npm run supervault-account  # deployment account, credentialed for all three zones
 
 echo 'VITE_WC_PROJECT_ID=<your id>' > web/.env   # free at cloud.reown.com
 npm run web                 # :5173
@@ -97,10 +115,14 @@ cd xrpl-dev-wallet-extension && npm install && npm run build
 
 | | |
 |---|---|
-| `npm test` | 46 unit tests over the pure logic — no network |
+| `npm test` | 83 unit tests over the pure logic — no network |
 | `npm run seed` | create N funds on Devnet and index them |
-| `npm run e2e` | full super vault lifecycle, ~4 min |
+| `npm run e2e` | super vault lifecycle through redeem and repay, ~10 min |
 | `npm run market-e2e` | full marketplace lifecycle, ~4 min |
+| `npm run reallocate-e2e` | sell a locked position and redeploy the cash, ~8 min |
+| `npm run times` | prints the exact date-field values for a manual run |
+| `npm run seed-realloc` | two sub-funds staged for a reallocation demo |
+| `npm --prefix web run lint` | rules-of-hooks and no-undef, which the build does not catch |
 | `npm run spike` | credentials → domain → vault → deposit, with the rejection cases |
 | `npm run lifecycle` | vault → loan → repayment, showing the price-per-share step |
 
@@ -110,8 +132,10 @@ cd xrpl-dev-wallet-extension && npm install && npm run build
 
 ```
 api/     Fastify + SQLite. routes -> services -> repositories -> validation.
-         Signs with three Devnet keys (platform, custody, deployment); every
-         value-moving route requires a signed proof of account control.
+         Signs with three Devnet keys (platform, custody, deployment).
+         Proof of account control is implemented but OFF by default, because on
+         a Devnet demo bound to localhost the only reachable caller is the person
+         running it: REQUIRE_AUTH=1 npm run api turns it on.
 web/     React + Vite. Talks to the wallet over WalletConnect v2 and reads the
          ledger directly. On-chain state is never cached in the database.
 scripts/ Devnet lifecycle scripts; the end-to-end runs double as regression tests.
@@ -124,3 +148,21 @@ Devnet only, and deliberately so: the API holds signing keys for three service a
 verification is stubbed — an investor states their residency and the platform issues a zone
 credential; they still accept it from their own wallet, so nothing is attached to an account without
 its signature. Swapping in a real check replaces one confirmation step, not the ledger flow.
+
+Four limits worth naming because they are the protocol's shape, not our shortcuts:
+
+- **Nothing enumerates vaults.** `account_objects` needs an owner you already know and `ledger_entry`
+  needs a 64-character VaultID, so any marketplace on XLS-65 must run an off-ledger index before it
+  can render a list at all. Ours is the `vaults` table. The same is true one level down: a
+  `LoanBroker` carries no loan list, so a fund cannot enumerate its own loan book.
+- **A rebalance needs a buyer.** Selling a locked position is the only exit, and if nobody buys, the
+  position sits listed and the capital is in neither fund. The curator can take the listing down and
+  custody returns the shares, but the liquidity risk is real and not something we can engineer away.
+- **A reallocation destination must still be raising.** A vault refuses a deposit outside its
+  subscription window, so "move to a better fund" only works while that fund is open.
+- **A repaid loan is not deleted.** After `LoanPay` settles the whole balance the Loan entry survives
+  with every balance field absent and only a stale `PeriodicPayment`, so its presence cannot be used
+  to mean money is owed. We treat a missing `TotalValueOutstanding` as repaid.
+
+Reallocation is whole-position only. The allocation table holds one row per (super vault, sub-fund)
+pair, so partial moves would need a position-history table.
