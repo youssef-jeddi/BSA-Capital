@@ -37,18 +37,25 @@ export default function AllocationBreakdown({ positions, renderAction }) {
         {positions.map((p) => {
           const actual = navTotal > 0 && p.value != null ? (p.value / navTotal) * 100 : null
           return (
-            <div key={p.sub_vault_id} className="holdings-row">
+            <div key={p.sub_vault_id}
+                 className={p.status === 'exited' ? 'holdings-row is-exited' : 'holdings-row'}>
               <div>
                 <b>{p.sub_vault_name ?? p.sub_vault_id.slice(0, 10)}</b>
                 <small>
                   {p.sub_company_name ?? 'unknown issuer'}
-                  {p.phase && ` · ${p.phase.phase}`}
-                  {p.lastLedger && ` · ledger ${p.lastLedger}`}
+                  {p.status === 'exiting' && ' · listed for sale'}
+                  {p.status === 'exited' && ' · sold and reallocated'}
+                  {p.status !== 'exited' && p.phase && ` · ${p.phase.phase}`}
+                  {p.status !== 'exited' && p.lastLedger && ` · ledger ${p.lastLedger}`}
                 </small>
               </div>
               <span className="num target">{bpsToPct(p.target_bps)}%</span>
               <span className="num">{actual == null ? '—' : `${actual.toFixed(1)}%`}</span>
-              <span className="num">{p.shares ? `${xrp(p.value)} XRP` : 'not funded'}</span>
+              <span className="num">
+                {p.status === 'exiting' ? 'with custody'
+                  : p.status === 'exited' ? 'exited'
+                  : p.shares ? `${xrp(p.value)} XRP` : 'not funded'}
+              </span>
               {renderAction && <span className="num">{renderAction(p)}</span>}
             </div>
           )

@@ -7,6 +7,7 @@ import { draftFromVault, stageRelaunch } from '../../lib/relaunch.js'
 const PhaseInline = ({ phase, nowMs }) =>
   phase ? <>{phase.phase.toLowerCase()}{phase.endsAt ? `, ${countdown(phase.endsAt - nowMs)} left` : ''}</> : <>unreadable</>
 import AllocationBreakdown from './AllocationBreakdown.jsx'
+import ReallocatePanel from './ReallocatePanel.jsx'
 import UnwindPanel from './UnwindPanel.jsx'
 import { countdown } from '../../lib/ledger.js'
 import { blendedTarget, formatRate } from '../../lib/yield.js'
@@ -31,6 +32,8 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
   const testAccountMatches = deployer?.configured && deployer.address === entry.deployment_address
 
   const raised = own?.vault ? Number(own.vault.AssetsTotal ?? 0) : null
+  const [realloc, setRealloc] = useState(null)
+  const reallocating = positions.find((p) => p.sub_vault_id === realloc)
   const blend = blendedTarget(positions, (id) =>
     positions.find((p) => p.sub_vault_id === id)?.sub_target_apy ?? null)
 
@@ -115,13 +118,29 @@ export default function SuperVaultDetail({ entry, nowMs, session, address, onBac
         </p>
         <AllocationBreakdown
           positions={positions}
-          renderAction={(p) => (
-            entry.status === 'deployed' && !p.deposited_tx && (isDeployer || testAccountMatches)
-              ? <button className="ghost sm" disabled={busy}
-                        onClick={() => (isDeployer ? fund(p) : fundWithTestAccount(p))}>Fund</button>
-              : null
-          )}
+          renderAction={(p) => {
+            if (p.status === 'exited') return null
+            if (entry.status === 'deployed' && !p.deposited_tx && (isDeployer || testAccountMatches)) {
+              return <button className="ghost sm" disabled={busy}
+                             onClick={() => (isDeployer ? fund(p) : fundWithTestAccount(p))}>Fund</button>
+            }
+            // Rebalancing is only meaningful once capital is actually in the fund.
+            if (isCurator && entry.status === 'deployed' && (p.shares > 0 || p.status === 'exiting')) {
+              return (
+                <button className="ghost sm"
+                        onClick={() => setRealloc(realloc === p.sub_vault_id ? null : p.sub_vault_id)}>
+                  {p.status === 'exiting' ? 'Redeploy' : 'Reallocate'}
+                </button>
+              )
+            }
+            return null
+          }}
         />
+
+        {reallocating && (
+          <ReallocatePanel entry={entry} position={reallocating} nowMs={nowMs}
+                           onDone={onRefresh} onClose={() => setRealloc(null)} />
+        )}
       </div>
 
       <div className="card">

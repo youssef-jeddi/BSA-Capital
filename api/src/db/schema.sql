@@ -91,6 +91,15 @@ CREATE TABLE IF NOT EXISTS super_vault_allocations (
   sub_vault_id   TEXT NOT NULL,
   target_bps     INTEGER NOT NULL,
   deposited_tx   TEXT,
+  -- A curator can rebalance mid-term, but a sub-fund position is locked in that
+  -- fund's Investment phase, so the only exit is selling the shares on the
+  -- secondary market and depositing the proceeds elsewhere. That needs a willing
+  -- buyer and takes time, so a position is explicitly 'exiting' in between: it
+  -- is in neither fund, and the UI must not pretend otherwise.
+  status         TEXT NOT NULL DEFAULT 'active',   -- active | exiting | exited
+  listing_id     TEXT,            -- marketplace listing while exiting
+  exited_at      TEXT,
+  replaced_by    TEXT,            -- sub_vault_id the capital moved into
   PRIMARY KEY (super_vault_id, sub_vault_id)
 );
 

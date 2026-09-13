@@ -137,6 +137,52 @@ const bps = (id, target_bps) => ({ sub_vault_id: id, target_bps })
 eq('no allocations means no blend', Y.blendedTarget([], () => 5000), null)
 eq('no published targets means no blend', Y.blendedTarget([bps('a', 10000)], () => null), null)
 
+/* ── reallocation: selling a locked position and redeploying the cash ── */
+const RA = await import('../api/src/validation/reallocation.js')
+group('reallocation')
+const RT = (min) => Math.floor((Date.now() + min * 60_000) / 1000) - 946684800
+const ctx = { superVaultId: 'S'.repeat(64), loanMaturity: RT(40), superRedemption: RT(60), nowMs: Date.now() }
+const exiting = { sub_vault_id: 'A'.repeat(64), status: 'exiting', target_bps: 10000 }
+const raising = { vault_id: 'C'.repeat(64), name: 'Fund C', subscription_date: RT(20), redemption_date: RT(30) }
+
+eq('a sold position redeploys into a fund still raising',
+  RA.validateReallocation({ from: exiting, to: raising, context: ctx }), [])
+ok('refuses a destination that stopped accepting deposits',
+  RA.validateReallocation({ from: exiting, to: { ...raising, subscription_date: RT(-5) }, context: ctx })
+    .some((e) => e.includes('closed its subscription window')))
+ok('refuses a destination that redeems after the loan matures',
+  RA.validateReallocation({ from: exiting, to: { ...raising, redemption_date: RT(50) }, context: ctx }).length)
+ok('refuses redeploying before anything was sold',
+  RA.validateReallocation({ from: { ...exiting, status: 'active' }, to: raising, context: ctx })
+    .some((e) => e.includes('Sell the position')))
+ok('refuses redeploying twice',
+  RA.validateReallocation({ from: { ...exiting, status: 'exited' }, to: raising, context: ctx })
+    .some((e) => e.includes('already been reallocated')))
+ok('refuses a destination that is not indexed',
+  RA.validateReallocation({ from: exiting, to: null, context: ctx }).length)
+ok('refuses allocating into the super vault itself',
+  RA.validateReallocation({ from: exiting, to: { ...raising, vault_id: ctx.superVaultId }, context: ctx }).length)
+ok('refuses moving a fund into itself',
+  RA.validateReallocation({ from: exiting, to: { ...raising, vault_id: exiting.sub_vault_id }, context: ctx }).length)
+
+group('reallocation pricing')
+// 50 XRP of shares at 1.0 price per share, sold 2% under net asset value.
+{
+  const p = RA.askFromNav({ shares: '50000000', navDrops: 1, discountBps: 200 })
+  eq('nav of the whole position', p.navTotal, '50000000')
+  eq('the ask is the discount applied', p.ask, '49000000')
+  eq('the haircut is what depositors lose', p.haircut, '1000000')
+}
+{
+  // Price per share above 1: repayments have already lifted the fund.
+  const p = RA.askFromNav({ shares: '50000000', navDrops: 1.0243, discountBps: 0 })
+  eq('nav follows price per share', p.navTotal, '51215000')
+  eq('no discount means ask equals nav', p.ask, p.navTotal)
+}
+eq('an unreadable nav cannot be priced', RA.askFromNav({ shares: '1', navDrops: null, discountBps: 0 }), null)
+eq('a 100% discount is refused', RA.askFromNav({ shares: '1', navDrops: 1, discountBps: 10000 }), null)
+eq('a negative discount is refused', RA.askFromNav({ shares: '1', navDrops: 1, discountBps: -1 }), null)
+
 group('weights and NAV')
 eq('50/50 accepted', S.weightErrors([{ target_bps: 5000 }, { target_bps: 5000 }]), [])
 ok('90% refused', S.weightErrors([{ target_bps: 9000 }]).length)

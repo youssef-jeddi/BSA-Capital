@@ -1,8 +1,9 @@
 import * as service from '../services/superVaults.js'
 import {
-  counterSignLoan, depositToVault, publicAccount,
+  counterSignLoan, depositToVault, ensureZoneCredentials, publicAccount,
   repayLoan, withdrawFromVault, unwindState,
 } from '../services/deploymentAccount.js'
+import { abandonExit, exitPosition, redeployProceeds } from '../services/reallocation.js'
 import { requireProof } from '../services/auth.js'
 
 const send = (reply, result, created = 200) =>
@@ -26,12 +27,21 @@ export default async function superVaultRoutes(app) {
     }
   })
 
+  /** Idempotently give the deployment account a credential for every zone. */
+  app.post('/api/deployment-account/credentials', async (req, reply) => {
+    try { return reply.send(await ensureZoneCredentials()) }
+    catch (e) { return reply.code(500).send({ errors: [e.message] }) }
+  })
+
   /** What the deployment account owes and still holds, for the unwind panel. */
   app.get('/api/super-vaults/:vaultId/unwind', async (req, reply) => {
     const sv = service.getSuperVault(req.params.vaultId)
     if (!sv) return reply.code(404).send({ errors: ['Super vault not found.'] })
     try {
-      return reply.send(await unwindState(sv.loan_id, sv.allocations.map((a) => a.sub_vault_id)))
+      // Exited allocations are history: redeeming them at unwind would read a
+      // position the deployment account no longer has.
+      const live = sv.allocations.filter((a) => a.status !== 'exited')
+      return reply.send(await unwindState(sv.loan_id, live.map((a) => a.sub_vault_id)))
     } catch (e) { return reply.code(400).send({ errors: [e.message] }) }
   })
 
@@ -69,6 +79,23 @@ export default async function superVaultRoutes(app) {
     const found = service.getSuperVault(req.params.vaultId)
     return found ? reply.send(found) : reply.code(404).send({ errors: ['Super vault not found.'] })
   })
+
+  /**
+   * Rebalance mid-term. The position is locked, so the only exit is a sale on
+   * the secondary market; these two routes are the sell and the redeploy.
+   */
+  app.post('/api/super-vaults/:vaultId/allocations/:subVaultId/exit',
+    { preHandler: requireProof((req) => service.getSuperVault(req.params.vaultId)?.curator_address) },
+    async (req, reply) => send(reply, await exitPosition(
+      req.params.vaultId, req.params.subVaultId, { discount_bps: Number(req.body?.discount_bps ?? 0) })))
+
+  app.post('/api/super-vaults/:vaultId/allocations/:subVaultId/abandon-exit',
+    { preHandler: requireProof((req) => service.getSuperVault(req.params.vaultId)?.curator_address) },
+    async (req, reply) => send(reply, await abandonExit(req.params.vaultId, req.params.subVaultId)))
+
+  app.post('/api/super-vaults/:vaultId/reallocate',
+    { preHandler: requireProof((req) => service.getSuperVault(req.params.vaultId)?.curator_address) },
+    async (req, reply) => send(reply, await redeployProceeds(req.params.vaultId, req.body ?? {})))
 
   app.post('/api/super-vaults', { preHandler: requireProof((req) => req.body?.curator_address) },
     async (req, reply) => send(reply, service.createSuperVault(req.body ?? {}), 201))

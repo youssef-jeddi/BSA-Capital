@@ -45,6 +45,15 @@ const STEPS = [
     addColumn(db, 'vaults', 'target_apy', 'INTEGER')
   }],
 
+  ['2026-09-13-allocation-reallocation', (db) => {
+    // Selling a locked position and redeploying the cash is two steps with a gap
+    // between them, so an allocation needs a state beyond funded-or-not.
+    addColumn(db, 'super_vault_allocations', 'status', "TEXT NOT NULL DEFAULT 'active'")
+    addColumn(db, 'super_vault_allocations', 'listing_id', 'TEXT')
+    addColumn(db, 'super_vault_allocations', 'exited_at', 'TEXT')
+    addColumn(db, 'super_vault_allocations', 'replaced_by', 'TEXT')
+  }],
+
   ['2026-09-13-drop-unused-profile-status', (db) => {
     // companies.status / users.status were a seam for a credentials flow the zone
     // system replaced. Nothing ever wrote them. SQLite cannot drop a column

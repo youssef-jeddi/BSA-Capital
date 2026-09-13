@@ -11,6 +11,8 @@ import path from 'node:path'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as xrpl from 'xrpl'
+import { ZONES, toHex } from '../lib/zones.js'
+import { issueZoneCredential, publicAdmin } from './platformAdmin.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const FILE = process.env.SUPERVAULT_ACCOUNT ?? path.join(here, '../../data/supervault-account.json')
@@ -89,6 +91,51 @@ export async function counterSignLoan(txJson) {
 }
 
 /** Deposit into a sub-vault as the deployment account. */
+/**
+ * Hold an accepted credential for every zone.
+ *
+ * A domain's AcceptedCredentials are OR, not AND, so one account credentialed
+ * for all three zones can deposit into any sub-fund whatever its gating. Without
+ * this the deployment account cannot fund a gated sub-fund at all: VaultDeposit
+ * returns tecNO_AUTH, which broke initial allocation as well as reallocation.
+ * Mirrors what setupCustody already does for the custody account. Idempotent.
+ */
+export async function ensureZoneCredentials() {
+  const account = loadAccount()
+  if (!account) throw new Error('No deployment account configured. Run: npm run supervault-account')
+  const admin = publicAdmin()
+  if (!admin.configured) throw new Error('Platform account missing. Run: npm run setup-zones')
+  const wallet = xrpl.Wallet.fromSeed(account.seed)
+
+  return withClient(async (client) => {
+    const held = await client.request({
+      command: 'account_objects', account: wallet.address, type: 'credential',
+    }).then((r) => r.result.account_objects ?? []).catch(() => [])
+
+    const zones = []
+    for (const zone of ZONES) {
+      const type = toHex(zone.credentialType)
+      const existing = held.find((o) => o.Issuer === admin.address && o.CredentialType === type)
+      // lsfAccepted = 0x00010000: issued but not yet accepted is not enough.
+      if (existing && (existing.Flags & 0x00010000)) { zones.push({ zone: zone.code, already: true }); continue }
+
+      if (!existing) {
+        const issued = await issueZoneCredential(wallet.address, zone.code)
+        if (issued.result_code !== 'tesSUCCESS' && issued.result_code !== 'tecDUPLICATE') {
+          throw new Error(`issue ${zone.code}: ${issued.result_code}`)
+        }
+      }
+      const accept = await submitSafely(client, wallet, {
+        TransactionType: 'CredentialAccept', Account: wallet.address,
+        Issuer: admin.address, CredentialType: type,
+      })
+      if (accept.code !== 'tesSUCCESS') throw new Error(`accept ${zone.code}: ${accept.code}`)
+      zones.push({ zone: zone.code, already: false })
+    }
+    return { address: wallet.address, zones }
+  })
+}
+
 export async function depositToVault(vaultId, amountDrops) {
   const account = loadAccount()
   if (!account) throw new Error('No deployment account configured. Run: npm run supervault-account')

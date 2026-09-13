@@ -33,6 +33,65 @@ export function allocationsOf(superVaultId) {
   `).all(superVaultId)
 }
 
+/**
+ * Only the positions the deployment account is actually meant to hold.
+ *
+ * An exited allocation is history and an exiting one is mid-sale, so neither
+ * should be redeemed at unwind or counted as a live holding.
+ */
+export function activeAllocations(superVaultId) {
+  return allocationsOf(superVaultId).filter((a) => a.status !== 'exited')
+}
+
+/** The shares are with custody and a buyer is being waited for. */
+export function markExiting(superVaultId, subVaultId, listingId) {
+  getDb().prepare(`
+    UPDATE super_vault_allocations SET status = 'exiting', listing_id = @listing_id
+     WHERE super_vault_id = @super_vault_id AND sub_vault_id = @sub_vault_id AND status = 'active'
+  `).run({ super_vault_id: superVaultId, sub_vault_id: subVaultId, listing_id: listingId })
+  return allocationsOf(superVaultId)
+}
+
+/** Put a half-finished exit back, so a failed listing does not strand the row. */
+export function cancelExit(superVaultId, subVaultId) {
+  getDb().prepare(`
+    UPDATE super_vault_allocations SET status = 'active', listing_id = NULL
+     WHERE super_vault_id = @super_vault_id AND sub_vault_id = @sub_vault_id AND status = 'exiting'
+  `).run({ super_vault_id: superVaultId, sub_vault_id: subVaultId })
+  return allocationsOf(superVaultId)
+}
+
+/**
+ * Close one position and open another with the same weight, atomically.
+ *
+ * The primary key is (super_vault_id, sub_vault_id), so moving back into a fund
+ * the curator left earlier reactivates that row rather than inserting a second.
+ */
+export function completeReallocation(superVaultId, { from, to, bps, depositTx }) {
+  const db = getDb()
+  db.transaction(() => {
+    db.prepare(`
+      UPDATE super_vault_allocations
+         SET status = 'exited', exited_at = @now, replaced_by = @to, target_bps = 0
+       WHERE super_vault_id = @sv AND sub_vault_id = @from
+    `).run({ sv: superVaultId, from, to, now: nowIso() })
+
+    db.prepare(`
+      INSERT INTO super_vault_allocations
+             (super_vault_id, sub_vault_id, target_bps, deposited_tx, status)
+      VALUES (@sv, @to, @bps, @tx, 'active')
+      ON CONFLICT(super_vault_id, sub_vault_id) DO UPDATE SET
+        target_bps  = target_bps + @bps,
+        deposited_tx = @tx,
+        status      = 'active',
+        listing_id  = NULL,
+        exited_at   = NULL,
+        replaced_by = NULL
+    `).run({ sv: superVaultId, to, bps, tx: depositTx })
+  })()
+  return allocationsOf(superVaultId)
+}
+
 export function insert(superVault, allocations) {
   const db = getDb()
   const tx = db.transaction(() => {
