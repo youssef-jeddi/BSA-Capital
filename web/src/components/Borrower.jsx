@@ -15,6 +15,15 @@ import {
 import { xrpToDrops, rippleTimeToUnixTime } from 'xrpl'
 import { clearPendingLoan, pendingFor, savePendingLoan } from '../lib/pendingLoans.js'
 
+const EXPLORER = 'https://devnet.xrpl.org'
+
+/** Drops to XRP. Fractional drops round up: never understate a debt. */
+const drops = (v, digits = 6) => {
+  const n = Number(v ?? 0)
+  if (!Number.isFinite(n)) return '—'
+  return (Math.ceil(n) / 1e6).toFixed(digits).replace(/\.?0+$/, '')
+}
+
 /**
  * A LoanSet needs signatures from BOTH parties, but a WalletConnect session is
  * bound to one account. So the flow is a handoff: the borrower signs without
@@ -129,7 +138,12 @@ export default function Borrower({ session, address }) {
       setSteps([
         { label: 'Counterparty signature attached', state: 'ok' },
         { label: 'LoanSet', state: code === 'tesSUCCESS' ? 'ok' : 'fail', code, hash: result.hash,
-          detail: loan ? `LoanID ${loan.LedgerIndex}` : undefined },
+          detail: loan
+            ? `Loan ${loan.LedgerIndex}\n`
+              + `${drops(loan.NewFields?.PrincipalOutstanding)} XRP left the fund's vault and is now `
+              + `in the borrower's account. It appears under Your loans, and the fund's available `
+              + `balance has dropped by the same amount.`
+            : undefined },
       ])
       load()
     } catch (e) {
@@ -140,15 +154,27 @@ export default function Borrower({ session, address }) {
     } finally { setBusy(false) }
   }
 
-  async function pay(loan, amount, flags) {
+  async function pay(loan, amount) {
     setBusy(true); setSteps([{ label: 'LoanPay', state: 'pending' }])
+    const before = Number(loan.TotalValueOutstanding ?? 0)
     try {
       const res = await signTransaction(session, {
         TransactionType: 'LoanPay', Account: address, LoanID: loan.index,
-        Amount: xrpToDrops(amount), ...(flags ? { Flags: flags } : {}),
+        Amount: xrpToDrops(amount),
       })
       const code = res?.tx_json?.meta?.TransactionResult
-      setSteps([{ label: 'LoanPay', state: code === 'tesSUCCESS' ? 'ok' : 'fail', code, hash: res.hash }])
+      // A green tick proves the transaction landed, not that the debt moved.
+      // Re-read the loan and report the change, which is what you came to see.
+      const after = await fetchLoans(address).then((all) => all.find((l) => l.index === loan.index))
+      const owed = after ? Number(after.TotalValueOutstanding ?? 0) : 0
+      setSteps([{
+        label: 'LoanPay', state: code === 'tesSUCCESS' ? 'ok' : 'fail', code, hash: res.hash,
+        detail: code === 'tesSUCCESS'
+          ? (!after || owed === 0
+              ? `Loan settled in full. Owed ${drops(before)} XRP, now nothing.`
+              : `Owed ${drops(before)} XRP, now ${drops(owed)} XRP. The payment landed in the fund's vault and lifts its price per share.`)
+          : undefined,
+      }])
       load()
     } catch (e) {
       const code = /\b(te[cflms][A-Z_]+)/.exec(e.message)?.[1]
@@ -297,36 +323,66 @@ export default function Borrower({ session, address }) {
 function LoanRow({ loan, nowMs, busy, onPay }) {
   const [amt, setAmt] = useState('')
   const due = rippleTimeToUnixTime(loan.NextPaymentDueDate)
+  const started = rippleTimeToUnixTime(loan.StartDate)
   const state = loanState(loan)
+
+  // Every amount on a Loan is in drops, and TotalValueOutstanding is fractional
+  // drops. Showing the raw integers made a 20 XRP draw read as 20000000.
+  const outstanding = Number(loan.PrincipalOutstanding ?? 0)
+  const total = Number(loan.TotalValueOutstanding ?? 0)
+  const interest = Math.max(0, total - outstanding)
+  const periodic = Number(loan.PeriodicPayment ?? 0)
+
   return (
     <div className="loan">
       <div className="vaulthead">
         <div>
-          <b>{loan.index.slice(0, 16)}…</b>
+          <b>{drops(total)} XRP owed</b>
           <span className={`tag st-${state}`}>{state}</span>
-          <div className="dim">{loan.PaymentRemaining} payment(s) remaining · {rateToPct(loan.InterestRate)}%</div>
+          <div className="dim">
+            {drops(outstanding)} principal + {drops(interest)} interest ·{' '}
+            {rateToPct(loan.InterestRate)}% ·{' '}
+            {loan.PaymentRemaining} payment{loan.PaymentRemaining === 1 ? '' : 's'} left
+          </div>
         </div>
         <div className="phase">
-          <span>next payment</span>
-          {due > nowMs ? countdown(due - nowMs) : 'overdue'}
+          <span>{due > nowMs ? 'next payment' : 'overdue since'}</span>
+          {due > nowMs ? countdown(due - nowMs) : countdown(nowMs - due)}
         </div>
       </div>
+
       <div className="stats">
-        <div><span>Principal outstanding</span><b>{loan.PrincipalOutstanding}</b></div>
-        <div><span>Total outstanding</span><b>{loan.TotalValueOutstanding}</b></div>
-        <div><span>Periodic payment</span><b>{loan.PeriodicPayment}</b></div>
+        <div>
+          <span>Owed in total</span><b>{drops(total)}</b>
+          <small>XRP, principal plus interest accrued</small>
+        </div>
+        <div>
+          <span>Each payment</span><b>{drops(periodic)}</b>
+          <small>{loan.PaymentRemaining === 1 ? 'single bullet payment' : `every ${Math.round(loan.PaymentInterval / 60)} min`}</small>
+        </div>
+        <div>
+          <span>Grace period</span><b>{Math.round(loan.GracePeriod / 60)} min</b>
+          <small>after the due date, before default</small>
+        </div>
       </div>
-      <div className="row" style={{ marginTop: 10 }}>
-        <input type="number" min="0" value={amt} onChange={(e) => setAmt(e.target.value)} placeholder="Amount in XRP" />
+
+      <div className="row">
+        <input type="number" min="0" step="0.000001" value={amt}
+               onChange={(e) => setAmt(e.target.value)} placeholder="Amount in XRP" />
         <button disabled={busy || !amt} onClick={() => onPay(loan, amt)}>Pay</button>
-        {/* No flag: LoanPay accepts the whole TotalValueOutstanding as-is.
-            This used to send 0x00020000, which is lsfLoanImpaired — a ledger
-            object flag, not a transaction flag. */}
         <button className="ghost" disabled={busy}
-                onClick={() => onPay(loan, String(Math.ceil(Number(loan.TotalValueOutstanding))))}>
-          Pay in full
+                onClick={() => onPay(loan, drops(total, 6))}>
+          Pay all {drops(total)} XRP
         </button>
       </div>
+
+      <p className="dim" style={{ marginTop: 10, marginBottom: 0 }}>
+        Started {new Date(started).toLocaleTimeString()} ·{' '}
+        <a href={`${EXPLORER}/transactions/${loan.PreviousTxnID}`} target="_blank" rel="noreferrer">
+          last transaction
+        </a>{' '}
+        · loan <code>{loan.index.slice(0, 12)}…</code>
+      </p>
     </div>
   )
 }
