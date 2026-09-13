@@ -9,13 +9,8 @@ import { useClock } from '../../hooks/useClock.js'
 import { asFundEntry } from '../../lib/superVault.js'
 import { assetToDisplay } from '../../lib/ledger.js'
 
-/**
- * Everything this company has issued: plain funds and super vaults it curates.
- *
- * `only` splits the same list between the two sidebar destinations — issuing a
- * fund and curating a fund-of-funds are different jobs with different controls.
- */
-export default function MyVaults({ session, address, company, onGoToInvest, only }) {
+/** Everything this company has issued: plain funds and the super vaults it curates. */
+export default function MyVaults({ session, address, company, onGoToInvest, onGoToLaunch }) {
   const { vaults, loading, error, refresh } = useVaults()
   const { superVaults, refresh: refreshSupers } = useSuperVaults()
   const nowMs = useClock()
@@ -25,7 +20,7 @@ export default function MyVaults({ session, address, company, onGoToInvest, only
   const mine = useMemo(() => [
     ...vaults.filter((v) => v.company_address === address).map((v) => ({ ...v, kind: 'fund' })),
     ...superVaults.filter((s) => s.curator_address === address).map(asFundEntry),
-  ].filter((v) => !only || v.kind === only), [vaults, superVaults, address, only])
+  ], [vaults, superVaults, address])
 
   const totals = useMemo(() => {
     const on = mine.filter((v) => v.vault)
@@ -66,16 +61,10 @@ export default function MyVaults({ session, address, company, onGoToInvest, only
   }
 
   return (
-    <div className="card">
-      <div className="row" style={{ justifyContent: 'space-between', marginTop: 0 }}>
-        <h2 style={{ margin: 0 }}>{only === 'super' ? 'Super vaults' : 'Funds you issued'}</h2>
-        <button className="ghost sm" onClick={() => setCreatingSuper(true)}>Launch a super vault</button>
-      </div>
+    <>
       <p className="lede">
-        {only === 'super'
-          ? <>Fund-of-funds curated by {company?.name ?? 'this company'}. One deposit, one redemption date, allocated across several managers.</>
-          : <>Funds issued by {company?.name ?? 'this company'}.</>}
-        {' '}Investors browse all of them in <button className="linklike" onClick={onGoToInvest}>Marketplace</button>.
+        Funds and super vaults issued by {company?.name ?? 'this company'}.
+        Investors browse all of them in <button className="linklike" onClick={onGoToInvest}>Invest</button>.
       </p>
 
       <div className="stats">
@@ -91,9 +80,8 @@ export default function MyVaults({ session, address, company, onGoToInvest, only
       {loading && !mine.length && <p className="status">Loading…</p>}
       {!loading && !mine.length && (
         <p className="empty">
-          {only === 'super'
-            ? <>You do not curate a fund-of-funds yet. <b>Launch a super vault</b> to allocate one raise across several managers.</>
-            : <>You have not issued any funds yet. Create one from <b>Launch a fund</b>.</>}
+          You have not issued anything yet.{' '}
+          <button className="linklike" onClick={onGoToLaunch}>Launch a fund</button> to start one.
         </p>
       )}
 
@@ -103,6 +91,6 @@ export default function MyVaults({ session, address, company, onGoToInvest, only
                      onOpen={() => setOpenId(entry.vault_id)} />
         ))}
       </div>
-    </div>
+    </>
   )
 }

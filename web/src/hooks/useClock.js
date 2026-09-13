@@ -1,17 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ledgerNowMs } from '../lib/ledger.js'
 
-const OFFSET_KEY = 'bsa_demo_clock_offset'
-
-/** Demo-only shift of the app's view of "now". Never changes what the ledger does. */
-export const getDemoOffset = () => {
-  try { return Number(localStorage.getItem(OFFSET_KEY) ?? 0) || 0 } catch { return 0 }
-}
-export const setDemoOffset = (ms) => {
-  try { localStorage.setItem(OFFSET_KEY, String(ms)) } catch { /* private mode */ }
-  window.dispatchEvent(new Event('bsa-demo-clock'))
-}
-
 /**
  * A once-per-second clock anchored to ledger time.
  *
@@ -21,8 +10,7 @@ export const setDemoOffset = (ms) => {
  */
 export function useClock() {
   const drift = useRef(0)
-  const [demo, setDemo] = useState(getDemoOffset)
-  const [nowMs, setNowMs] = useState(() => Date.now() + getDemoOffset())
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
   useEffect(() => {
     let alive = true
@@ -35,16 +23,10 @@ export function useClock() {
   }, [])
 
   useEffect(() => {
-    const tick = () => setNowMs(Date.now() + drift.current + demo)
+    const tick = () => setNowMs(Date.now() + drift.current)
     tick()
     const t = setInterval(tick, 1000)
     return () => clearInterval(t)
-  }, [demo])
-
-  useEffect(() => {
-    const onChange = () => setDemo(getDemoOffset())
-    window.addEventListener('bsa-demo-clock', onChange)
-    return () => window.removeEventListener('bsa-demo-clock', onChange)
   }, [])
 
   return nowMs

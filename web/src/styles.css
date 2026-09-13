@@ -213,17 +213,23 @@ summary { cursor: pointer; color: var(--dim); margin-top: 10px; font-size: 12px;
 .uri button { margin-top: 10px; }
 
 /* ── tabs ───────────────────────────────────────────── */
-/* Underlined, not pill-shaped: the design uses a single hairline as the tab rail. */
-.tabs, .subtabs { display: flex; gap: 26px; margin-bottom: 22px; border-bottom: 1px solid var(--line); }
+/* Underlined, not pill-shaped: the design uses a single hairline as the tab rail.
+   Sized up from the source, which set these at 13.5px — at that size the two
+   halves of a screen read as a caption rather than as the main choice on it. */
+.tabs, .subtabs { display: flex; gap: 32px; margin-bottom: 24px; border-bottom: 1px solid var(--line); }
 .tab, .subtab {
-  border: 0; background: none; border-radius: 0; padding: 0 0 10px;
-  font-size: 13.5px; font-weight: 400; color: var(--dim);
-  border-bottom: 2px solid transparent;
+  border: 0; background: none; border-radius: 0; padding: 0 0 13px;
+  font-size: 16px; font-weight: 500; letter-spacing: -0.005em; color: var(--faint);
+  border-bottom: 3px solid transparent; margin-bottom: -1px;
 }
 .tab:hover:not(.on), .subtab:hover:not(.on) { background: none; color: var(--fg); }
-.tab.on, .subtab.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 500; }
+.tab.on, .subtab.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
 .tab:disabled, .subtab:disabled { opacity: 0.4; }
-.tab .count, .subtab .count { font-family: var(--mono); font-size: 11px; margin-left: 7px; opacity: 0.6; }
+.tab .count, .subtab .count { font-family: var(--mono); font-size: 12px; margin-left: 8px; opacity: 0.6; }
+@media (max-width: 620px) {
+  .tabs, .subtabs { gap: 22px; }
+  .tab, .subtab { font-size: 14.5px; }
+}
 .soon { font-size: 10px; margin-left: 6px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em; }
 
 /* ── form ───────────────────────────────────────────── */
@@ -252,7 +258,6 @@ label.inline select { width: auto; min-width: 150px; margin-top: 0; padding: 6px
 .chip:hover:not(.on) { background: var(--card); border-color: var(--accent); color: var(--accent-text); }
 .chip.on { border-color: var(--accent); color: #fff; background: var(--accent); }
 .chip.tiny { padding: 3px 8px; font-size: 11px; }
-.chip.tiny.reset { border-color: var(--accent); color: var(--accent-text); background: var(--card); }
 .chip .count { margin-left: 8px; opacity: 0.65; font-variant-numeric: tabular-nums; }
 .presets { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
 
@@ -575,14 +580,6 @@ label.inline select { width: auto; min-width: 150px; margin-top: 0; padding: 6px
 .subsection > b { display: block; font-size: 13px; margin-bottom: 4px; }
 .verified { color: var(--ok); }
 
-/* ── demo clock ─────────────────────────────────────── */
-.democlock { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-             margin-bottom: 16px; font-size: 11px; color: var(--dim); }
-.democlock-label { margin-right: 4px; }
-.democlock-label b { color: var(--accent-text); }
-.democlock.on { background: var(--accent-tint); border: 1px solid var(--accent-line);
-                border-radius: var(--radius-sm); padding: 8px 10px; }
-.democlock small { flex-basis: 100%; color: var(--warn); }
 
 /* ── landing ────────────────────────────────────────── */
 .hero { padding: 8px 0 30px; }

@@ -9,8 +9,8 @@ import Marketplace from './market/Marketplace.jsx'
  * unrelated features. They are the primary and secondary market for the same asset.
  */
 const TABS = [
-  { id: 'primary', label: 'New issues', hint: 'Subscribe while a fund is still raising' },
-  { id: 'secondary', label: 'Resale market', hint: 'Buy a locked position from another investor' },
+  { id: 'primary', label: 'Vaults', hint: 'Subscribe while a fund is still raising' },
+  { id: 'secondary', label: 'Shares marketplace', hint: 'Buy a locked position from another investor' },
 ]
 
 export default function Funds({ session, address }) {

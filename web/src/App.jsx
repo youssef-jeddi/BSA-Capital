@@ -4,15 +4,13 @@ import { startPairing, restoreSession, disconnect, accountOf, allSessions, getCl
 import { setProofSigner, setProofListener, clearAuthSession } from './lib/api.js'
 import Borrower from './components/Borrower.jsx'
 import Funds from './components/Funds.jsx'
-import CreateVault from './components/CreateVault.jsx'
-import MyVaults from './components/vaults/MyVaults.jsx'
+import MyFunds from './components/MyFunds.jsx'
 import Positions from './components/vaults/Positions.jsx'
 import Onboarding from './components/onboarding/Onboarding.jsx'
 import CompanyForm from './components/onboarding/CompanyForm.jsx'
 import UserForm from './components/onboarding/UserForm.jsx'
 import { useProfile } from './hooks/useProfile.js'
 import { useHolderZones } from './hooks/useZones.js'
-import DemoClock from './components/ui/DemoClock.jsx'
 import ErrorBoundary from './components/ui/ErrorBoundary.jsx'
 import Landing from './components/Landing.jsx'
 
@@ -20,35 +18,29 @@ const WSS = 'wss://s.devnet.rippletest.net:51233/'
 const EXPLORER = 'https://devnet.xrpl.org'
 
 /**
- * Navigation is a permanent rail, grouped by what you came to do.
+ * Navigation is a permanent rail: one line per destination, no group heading
+ * unless the heading earns its place. Anything with two halves says so with
+ * subtabs inside the screen rather than two entries out here.
  *
  * Registration is exclusive (an address is a company or an individual), but a
  * company can still invest: a curator allocating across other funds is the whole
- * super-vault idea, so INVEST is not investor-only.
+ * super-vault idea, so Invest is not investor-only.
  */
 const NAV_BY_ROLE = {
   company: [
-    { group: 'Invest', items: [
-      { id: 'market', label: 'Marketplace', title: 'Marketplace' },
+    { items: [
+      { id: 'invest', label: 'Invest', title: 'Invest' },
       { id: 'portfolio', label: 'Portfolio', title: 'Portfolio' },
-    ] },
-    { group: 'Issue', items: [
-      { id: 'issue', label: 'Launch a fund', title: 'Launch a fund' },
-      { id: 'performance', label: 'Fund performance', title: 'Fund performance' },
-    ] },
-    { group: 'Curate', items: [
-      { id: 'curate', label: 'Super vaults', title: 'Super vaults' },
-    ] },
-    { group: 'Borrow', items: [
-      { id: 'borrow', label: 'Credit facility', title: 'Credit facility' },
+      { id: 'myfunds', label: 'My funds', title: 'My funds' },
+      { id: 'borrow', label: 'Borrow', title: 'Borrow' },
     ] },
     { group: 'Account', items: [
       { id: 'profile', label: 'Company profile', title: 'Company profile' },
     ] },
   ],
   user: [
-    { group: 'Invest', items: [
-      { id: 'market', label: 'Marketplace', title: 'Marketplace' },
+    { items: [
+      { id: 'invest', label: 'Invest', title: 'Invest' },
       { id: 'portfolio', label: 'Portfolio', title: 'Portfolio' },
     ] },
     { group: 'Account', items: [
@@ -214,9 +206,9 @@ export default function App() {
           </div>
 
           <nav className="sidenav">
-            {nav.map((g) => (
-              <div className="sidegroup" key={g.group}>
-                <small>{g.group.toUpperCase()}</small>
+            {nav.map((g, gi) => (
+              <div className="sidegroup" key={g.group ?? gi}>
+                {g.group && <small>{g.group.toUpperCase()}</small>}
                 {g.items.map((item) => (
                   <button key={item.id}
                           className={active?.id === item.id ? 'sidelink on' : 'sidelink'}
@@ -266,7 +258,7 @@ export default function App() {
           </div>
         </header>
 
-        <main className={active?.id === 'issue' || active?.id === 'borrow' ? 'narrow' : undefined}>
+        <main className={active?.id === 'borrow' ? 'narrow' : undefined}>
           {pairing && uri && (
             <div className="card uri" style={{ marginBottom: 20 }}>
               <p>Switch the extension to the <b>other account</b> first, then paste this and Approve:</p>
@@ -292,28 +284,18 @@ export default function App() {
           ) : !role ? (
             <Onboarding address={address} onDone={refreshProfile} />
           ) : (
-            <>
-              <DemoClock />
-              <ErrorBoundary key={active?.id}>
-                {active?.id === 'market' && <Funds key={address} session={session} address={address} />}
+            <ErrorBoundary key={active?.id}>
+                {active?.id === 'invest' && <Funds key={address} session={session} address={address} />}
                 {active?.id === 'portfolio' && <Positions key={address} session={session} address={address} />}
-                {active?.id === 'issue' && (
-                  <CreateVault key={address} session={session} address={address} company={profile} />
-                )}
-                {active?.id === 'performance' && (
-                  <MyVaults key={address} session={session} address={address} company={profile}
-                            only="fund" onGoToInvest={() => setTab('market')} />
-                )}
-                {active?.id === 'curate' && (
-                  <MyVaults key={`${address}-super`} session={session} address={address} company={profile}
-                            only="super" onGoToInvest={() => setTab('market')} />
+                {active?.id === 'myfunds' && (
+                  <MyFunds key={address} session={session} address={address} company={profile}
+                           onGoToInvest={() => setTab('invest')} />
                 )}
                 {active?.id === 'borrow' && <Borrower key={address} session={session} address={address} />}
                 {active?.id === 'profile' && (role === 'company'
                   ? <CompanyForm address={address} existing={profile} onDone={refreshProfile} />
                   : <UserForm address={address} existing={profile} onDone={refreshProfile} />)}
-              </ErrorBoundary>
-            </>
+            </ErrorBoundary>
           )}
 
           {status && <p className="status">{status}</p>}
